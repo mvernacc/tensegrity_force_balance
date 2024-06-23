@@ -75,3 +75,7 @@ def test_four_wire_set_tension():
     assert tensions[1] == approx(pre_tension, abs=1e-4)
     assert tensions[2] == approx(pre_tension, abs=1e-4)
     assert tensions[3] == approx(pre_tension, abs=1e-4)
+
+
+def test_fail():
+    assert False
