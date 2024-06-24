@@ -1,12 +1,15 @@
 import warnings
-import numpy as np
-from numpy.typing import NDArray
+
 import cvxpy as cp
+import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
+from numpy.typing import NDArray
+from scipy.linalg import null_space
+from dataclasses import dataclass
 
 
-def _unit(x: tuple[float, float, float]) -> np.ndarray:
+def _unit(x: tuple[float, float, float] | NDArray) -> NDArray:
     x_ = np.array(x)
     return x_ / np.linalg.norm(x_)
 
@@ -131,6 +134,155 @@ def calc_wire_tensions_two_body(
         raise ValueError(f"Solve failed.\n{str(problem)}")
 
     return f.value.tolist()
+
+
+def get_translation_linear_operator(
+    directions: list[tuple[float, float, float]],
+) -> NDArray:
+    """Get a linear operator which maps translations of the body -> changes in the constraint lengths.
+
+    The sign convention for length changes is that motion in the constraint direction is a positive
+    length change.
+
+    The null space of this operator represents the translational degrees of freedom of the body,
+    if any exist.
+
+    See `calc_translation_dofs` for a description of the arguments.
+    """
+    return np.array([_unit(d) for d in directions])
+
+
+def get_rotation_linear_operator(
+    connection_points: list[tuple[float, float, float]],
+    directions: list[tuple[float, float, float]],
+) -> NDArray:
+    """Get a linear operator which maps rotations of the body -> changes in the constraint lengths.
+    This linearization is only valid for very small rotations.
+
+    The input space for this operator is column vectors like
+    ```
+    [[r[0]],
+     [r[1]],
+     [r[2]],
+     [rp[0]],
+     [rp[1]],
+     [rp[2]]]
+    ```
+    where $r$ is the axis of rotation, $p$ is the point about which the body is rotated,
+    and $rp = r \\cross p$.
+
+    The sign convention for length changes is that motion in the constraint direction is a positive
+    length change.
+
+    The null space of this operator represents the rotational degrees of freedom of the body,
+    if any exist.
+
+    See `calc_dofs` for a description of the arguments.
+    """
+    if len(directions) != len(connection_points):
+        raise ValueError("`directions` must have the same length as `connection_points`")
+
+    # Let
+    #   $r$ be a rotation vector,
+    #   $c$ be a connection point vector,
+    #   $d$ be a unit direction vector,
+    #   $dl$ be the scalar length change of the corresponding constraint.
+    # We seek a vector $a$ such that $a \dot r = dl$. $a$ will be the row of the linear
+    # operator for the corresponding constraint.
+    #
+    # Let $m$ be the direction of motion of $c$ for an infinitesimal rotation about $r$:
+    #   $m = r \cross c$
+    #
+    # The constraint length change is the motion along the constraint direction:
+    #   $dl = m \dot d$
+    #
+    # Combining these two equations:
+    #   $(r \cross c) \dot d = dl$
+    #
+    # Use the vector triple product rule:
+    #   $(c \cross d) \dot r = dl$
+    #
+    # Thus our linear operator row $a = (c \cross d)$.
+    # TODO document
+    return np.array(
+        [
+            np.concatenate((np.cross(c, _unit(d)), -1 * _unit(d)))
+            for c, d in zip(connection_points, directions)
+        ]
+    )
+
+
+@dataclass
+class Rotation:
+    axis: NDArray  # shape (3,)
+    center: NDArray  # shape (3,)
+
+
+def extract_rotation(r_and_rp: NDArray) -> Rotation:
+    assert r_and_rp.shape == (6,)
+    r = r_and_rp[:3]
+    rp = r_and_rp[3:]
+    p = np.cross(r, rp) / (r @ r)
+    return Rotation(axis=_unit(r), center=p)
+
+
+@dataclass
+class DoF:
+    translation: NDArray | None  # shape (3,)
+    rotation: Rotation | None
+
+
+def calc_dofs(
+    connection_points: list[tuple[float, float, float]],
+    directions: list[tuple[float, float, float]],
+) -> list[DoF]:
+    """Calculate the translational and rotational degrees of freedom of a constrained rigid body.
+
+    This function models a rigid body supported by point-contact "constraint lines",
+    as defined in Blanding [1].
+
+    Args:
+        directions: Directions of the constraints.
+
+    Returns:
+        basis: Dimensionless matrix of shape (6 x n_dof).
+            The columns of this matrix form an orthonormal basis of the system's
+            degrees of freedom; `basis.shape[1]` is the number of degrees of freedom.
+            Within each column, the first three elements are a translation axis and
+            the second three elements are a
+
+
+    References:
+        [1] D. Blanding, Exact Constraint: Machine Design Using Kinematic Processing.
+            New York: American Society of Mechanical Engineers, 1999.
+    """
+    n_constraints = len(connection_points)
+    if n_constraints == 0:
+        return []
+
+    linop_trans = get_translation_linear_operator(directions)
+    linop_rot = get_rotation_linear_operator(connection_points, directions)
+
+    basis = null_space(np.hstack((linop_trans, linop_rot)))
+    print(basis)
+    assert basis.shape[0] == 9
+
+    # TODO the basis can contain extraneous columns where
+    # the rotation axis is zero, but the rotation center and translation are equal.
+    # Further, I suspect the rotation center and translation couple together somehow.
+    # I need to correct for this when converting the null space basis into degrees of freedom.
+
+    # Each constraint removes at most 1 degree of freedom.
+    n_dof = basis.shape[1]
+    assert n_dof >= 3 - n_constraints
+
+    dofs = []
+    for i in range(n_dof):
+        col = basis[:, i]
+        translation = None if np.linalg.norm(col[:3]) < 1e-6 else _unit(col[:3])
+        rotation = None if np.linalg.norm(col[3:]) < 1e-6 else extract_rotation(col[3:])
+        dofs.append(DoF(translation=translation, rotation=rotation))
+    return dofs
 
 
 def _draw_vector_three_view(
