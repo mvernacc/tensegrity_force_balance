@@ -1,6 +1,9 @@
 import warnings
 import numpy as np
+from numpy.typing import NDArray
 import cvxpy as cp
+from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
 
 
 def _unit(x: tuple[float, float, float]) -> np.ndarray:
@@ -26,10 +29,10 @@ def calc_wire_tensions_two_body(
     Args:
         wire_connection_points: [m] A list of 3-vectors giving the points at which the
             wires connect to the platform.
-         wire_directions: [dimensionless] A list of 3-vectors giving the direction along which the
+        wire_directions: [dimensionless] A list of 3-vectors giving the direction along which the
             wire emanates from each connection point.
         platform_com: [m] The location of the platform's center of mass.
-        platform_weight [N]: The weight vector of the platform.
+        platform_weight: [N] The weight vector of the platform.
         set_tensions: Optionally, set the tension force in zero or more wires.
             For each item, the first element is the index in the wire lists, and
             the second element is the fixed tension force in newtons.
@@ -128,3 +131,106 @@ def calc_wire_tensions_two_body(
         raise ValueError(f"Solve failed.\n{str(problem)}")
 
     return f.value.tolist()
+
+
+def _draw_vector_three_view(
+    top_xy: Axes,
+    front_xz: Axes,
+    right_yz: Axes,
+    start: tuple[float, float, float] | NDArray,
+    length: tuple[float, float, float] | NDArray,
+    **kwargs,
+):
+    hw = 0.03
+    top_xy.arrow(
+        start[0],
+        start[1],
+        length[0],
+        length[1],
+        head_width=hw,
+        **kwargs,
+    )
+    front_xz.arrow(
+        start[0],
+        start[2],
+        length[0],
+        length[2],
+        head_width=hw,
+        **kwargs,
+    )
+    right_yz.arrow(
+        start[1],
+        start[2],
+        length[1],
+        length[2],
+        head_width=hw,
+        **kwargs,
+    )
+
+
+def draw_three_view(
+    wire_connection_points: list[tuple[float, float, float]],
+    wire_directions: list[tuple[float, float, float]],
+    platform_com: tuple[float, float, float],
+    platform_weight: tuple[float, float, float],
+    tensions: list[float],
+    meter_per_newton: float = 1.0,
+):
+    """Visualize the wire forces from `calc_wire_tensions_two_body`.
+    See `calc_wire_tensions_two_body` for a description of the arguments.
+
+    `meters_per_newton` converts the force vectors to lengths on the plot.
+    """
+    fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True, sharey=True, figsize=(15, 15))
+    top_xy, leg = axes[0]
+    front_xz, right_yz = axes[1]
+    max_tension = max(tensions)
+    for i in range(len(wire_connection_points)):
+        color = f"C{i}"
+        _draw_vector_three_view(
+            top_xy,
+            front_xz,
+            right_yz,
+            wire_connection_points[i],
+            meter_per_newton * tensions[i] * _unit(wire_directions[i]),
+            color=color,
+            label=f"wire {i}",
+        )
+        # Draw "ghost" of short arrows to indicate their direction.
+        if tensions[i] < 0.5 * max_tension:
+            _draw_vector_three_view(
+                top_xy,
+                front_xz,
+                right_yz,
+                wire_connection_points[i],
+                meter_per_newton * 0.5 * max_tension * _unit(wire_directions[i]),
+                color=color,
+                alpha=0.25,
+            )
+        leg.scatter(0.0, 0.0, color=color, label=f"wire {i}")
+    _draw_vector_three_view(
+        top_xy,
+        front_xz,
+        right_yz,
+        platform_com,
+        meter_per_newton * np.array(platform_weight),
+        color="black",
+        label="weight",
+    )
+    leg.scatter(0.0, 0.0, color="black", label="weight")
+    leg.legend(loc="upper right")
+
+    top_xy.set_title("Top")
+    top_xy.set_xlabel("$x$")
+    top_xy.set_ylabel("$y$")
+    front_xz.set_title("Front")
+    front_xz.set_xlabel("$x$")
+    front_xz.set_ylabel("$z$")
+    right_yz.set_title("Right")
+    right_yz.set_xlabel("$y$")
+    right_yz.set_ylabel("$z$")
+
+    for ax in (top_xy, front_xz, right_yz):
+        ax.set_aspect("equal")
+
+    fig.tight_layout()
