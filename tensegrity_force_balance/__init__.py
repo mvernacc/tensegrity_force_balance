@@ -9,7 +9,10 @@ from scipy.linalg import null_space
 from dataclasses import dataclass
 
 
-def _unit(x: tuple[float, float, float] | NDArray) -> NDArray:
+Vec3 = tuple[float, float, float] | NDArray
+
+
+def _unit(x: Vec3) -> NDArray:
     x_ = np.array(x)
     return x_ / np.linalg.norm(x_)
 
@@ -203,7 +206,7 @@ def get_rotation_linear_operator(
     #   $(c \cross d) \dot r = dl$
     #
     # Thus our linear operator row $a = (c \cross d)$.
-    # TODO document
+    # TODO document for rotation about point p. The above describes rotation about the origin.
     return np.array(
         [
             np.concatenate((np.cross(c, _unit(d)), -1 * _unit(d)))
@@ -218,18 +221,47 @@ class Rotation:
     center: NDArray  # shape (3,)
 
 
-def extract_rotation(r_and_rp: NDArray) -> Rotation:
-    assert r_and_rp.shape == (6,)
-    r = r_and_rp[:3]
-    rp = r_and_rp[3:]
-    p = np.cross(r, rp) / (r @ r)
-    return Rotation(axis=_unit(r), center=p)
-
-
 @dataclass
 class DoF:
     translation: NDArray | None  # shape (3,)
     rotation: Rotation | None
+
+
+def calc_rotation_center(
+    connection_points: list[tuple[float, float, float]],
+    directions: list[tuple[float, float, float]],
+    r: Vec3,  # Rotation axis
+) -> NDArray:
+    """Given a set of constraints and a rotation axis,
+    solve for the point about which the rotation will not change the length
+    of any constraint.
+    """
+    A = np.array([np.cross(_unit(d), r) for d in directions])
+    b = np.array([np.cross(c, _unit(d)) @ r for c, d in zip(connection_points, directions)])
+    p, resid, rank, s = np.linalg.lstsq(A, b)
+    print(f"{p=}, {resid=}, {rank=}, {s=}")
+    if resid > 1e-6:
+        assert False  # TODO handle case where there is no good rotation point.
+    return p
+
+
+def shortest_dist_between_lines(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3) -> float:
+    """Calculate the shortest distance between two 3d lines.
+
+    `p1` and `p2` are points on lines 1 and 2.
+    `d1` and `d2` are the directions of lines 1 and 2.
+    """
+    d1 = _unit(d1)
+    d2 = _unit(d2)
+    p1 = np.array(p1)
+    p2 = np.array(p2)
+    d1xd2 = np.cross(d1, d2)
+    d1xd2_norm = np.linalg.norm(d1xd2)
+    if d1xd2_norm < 1e-9:
+        # Lines are almost parallel, avoid dividing by zero.
+        # N.B. the norm of d1 is 1.
+        return float(np.linalg.norm(np.cross(d1, (p2 - p1))))
+    return float(np.linalg.norm(d1xd2 @ (p2 - p1)) / d1xd2_norm)
 
 
 def calc_dofs(
@@ -260,17 +292,11 @@ def calc_dofs(
     if n_constraints == 0:
         return []
 
-    linop_trans = get_translation_linear_operator(directions)
-    linop_rot = get_rotation_linear_operator(connection_points, directions)
+    linop_rt = get_rotation_linear_operator(connection_points, directions)
 
-    basis = null_space(np.hstack((linop_trans, linop_rot)))
+    basis = null_space(linop_rt)
     print(basis)
-    assert basis.shape[0] == 9
-
-    # TODO the basis can contain extraneous columns where
-    # the rotation axis is zero, but the rotation center and translation are equal.
-    # Further, I suspect the rotation center and translation couple together somehow.
-    # I need to correct for this when converting the null space basis into degrees of freedom.
+    assert basis.shape[0] == 6
 
     # Each constraint removes at most 1 degree of freedom.
     n_dof = basis.shape[1]
@@ -279,8 +305,15 @@ def calc_dofs(
     dofs = []
     for i in range(n_dof):
         col = basis[:, i]
-        translation = None if np.linalg.norm(col[:3]) < 1e-6 else _unit(col[:3])
-        rotation = None if np.linalg.norm(col[3:]) < 1e-6 else extract_rotation(col[3:])
+
+        translation = None
+        rotation = None
+        if np.linalg.norm(col[:3]) < 1e-6:
+            translation = col[3:]
+        else:
+            axis = _unit(col[:3])
+            center = calc_rotation_center(connection_points, directions, axis)
+            rotation = Rotation(axis=axis, center=center)
         dofs.append(DoF(translation=translation, rotation=rotation))
     return dofs
 

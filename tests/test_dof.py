@@ -6,6 +6,7 @@ from tensegrity_force_balance import (
     get_translation_linear_operator,
     get_rotation_linear_operator,
     calc_dofs,
+    shortest_dist_between_lines,
 )
 
 
@@ -56,6 +57,37 @@ class TestGetRotationLinearOperator:
         assert dl[2] > 1e-3
 
 
+class TestShortestDistanceBetweenLines:
+    def test_parallel(self):
+        p1 = np.array((0, 0, 0))
+        d1 = np.array((0, 1, 0))
+
+        p2 = np.array((1, 0, 0))
+        d2 = np.array((0, 1, 0))
+
+        assert shortest_dist_between_lines(p1, d1, p2, d2) == approx(1.0)
+
+    def test_skew(self):
+        p1 = np.array((1, 1, -1))
+        d1 = np.array((-1, 0, 1))
+
+        p2 = np.array((-1, -1, -1))
+        d2 = np.array((1, 0, 1))
+
+        # Closest approach should be 2 apart, between points (0, 1, 0) and (0, -1, 0)
+        assert shortest_dist_between_lines(p1, d1, p2, d2) == approx(2.0)
+
+    def test_intersecting(self):
+        p1 = np.array((1, 0, 0))
+        d1 = np.array((-1, 1, 0))
+
+        p2 = np.array((-1, 0, 0))
+        d2 = np.array((1, 1, 0))
+
+        # The lines intersect at (0, 1, 0)
+        assert shortest_dist_between_lines(p1, d1, p2, d2) == approx(0.0)
+
+
 class TestCalcDofs:
     def test_three_constraints_thru_origin(self):
         dofs = calc_dofs(
@@ -75,3 +107,29 @@ class TestCalcDofs:
         for dof in dofs:
             assert dof.translation is None
             assert dof.rotation is not None
+            assert dof.rotation.center == approx(np.zeros(3))
+
+    def test_three_constraints_thru_111(self):
+        connection_points = [
+            (1.0, 1.0, 1.0),
+            (1.0, 1.0, 1.0),
+            (1.0, 1.0, 1.0),
+        ]
+        directions = [
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        ]
+        dofs = calc_dofs(connection_points, directions)
+        print(dofs)
+        assert len(dofs) == 3
+        for dof in dofs:
+            assert dof.translation is None
+            assert dof.rotation is not None
+            # Axes of rotation will intersect or be parallel to all constraints.
+            for c, d in zip(connection_points, directions):
+                assert (
+                    shortest_dist_between_lines(c, d, dof.rotation.center, dof.rotation.axis) < 1e-9
+                )
+
+    # TODO test with translation dofs.
