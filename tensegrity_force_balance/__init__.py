@@ -7,6 +7,7 @@ from matplotlib.axes import Axes
 from numpy.typing import NDArray
 from scipy.linalg import null_space
 from dataclasses import dataclass
+from mpl_toolkits.mplot3d import Axes3D
 
 
 Vec3 = tuple[float, float, float] | NDArray
@@ -419,3 +420,127 @@ def draw_three_view(
         ax.set_aspect("equal")
 
     fig.tight_layout()
+
+
+CONSTRAINT_LINEWIDTH = 2.0
+CONSTRAINT_MARKERSIZE = 10.0
+DOF_LINEWIDTH = 1.0
+DOF_EXTENDED_LINEWIDTH = 0.5
+DOF_MARKERSIZE = 10.0
+DOF_TRANSLATION_LENGTH = 0.5
+
+
+def draw_constraint_three_view(
+    top_xy: Axes,
+    front_xz: Axes,
+    right_yz: Axes,
+    contact_point: tuple[float, float, float] | NDArray,
+    direction: tuple[float, float, float] | NDArray,
+):
+    for ax, i, j in ((top_xy, 0, 1), (front_xz, 0, 2), (right_yz, 1, 2)):
+        ax.plot(
+            [contact_point[i], contact_point[i] - direction[i]],
+            [contact_point[j], contact_point[j] - direction[j]],
+            linewidth=CONSTRAINT_LINEWIDTH,
+            color="black",
+        )
+        ax.plot(
+            [contact_point[i]],
+            [contact_point[j]],
+            markersize=CONSTRAINT_MARKERSIZE,
+            marker=".",
+            color="black",
+        )
+
+
+def draw_constraint_3d(
+    ax: Axes3D,
+    contact_point: tuple[float, float, float] | NDArray,
+    direction: tuple[float, float, float] | NDArray,
+):
+    ax.plot(
+        [contact_point[0], contact_point[0] - direction[0]],
+        [contact_point[1], contact_point[1] - direction[1]],
+        [contact_point[2], contact_point[2] - direction[2]],
+        linewidth=CONSTRAINT_LINEWIDTH,
+        color="black",
+    )
+    ax.plot(
+        [contact_point[0]],
+        [contact_point[1]],
+        [contact_point[2]],
+        markersize=CONSTRAINT_MARKERSIZE,
+        marker=".",
+        color="black",
+    )
+
+
+def draw_dof_three_view(
+    top_xy: Axes,
+    front_xz: Axes,
+    right_yz: Axes,
+    dof: DoF,
+    color: str = "gray",
+):
+    if dof.translation is not None:
+        for ax, i, j in ((top_xy, 0, 1), (front_xz, 0, 2), (right_yz, 1, 2)):
+            if abs(dof.translation[i]) < 1e-9 and abs(dof.translation[j]) < 1e-9:
+                ax.plot([0], [0], marker=".", color=color, markersize=DOF_MARKERSIZE)
+            else:
+                ax.arrow(
+                    0.0,
+                    0.0,
+                    DOF_TRANSLATION_LENGTH * dof.translation[i],
+                    DOF_TRANSLATION_LENGTH * dof.translation[j],
+                    color=color,
+                    head_width=0.05,
+                    length_includes_head=True,
+                )
+    if dof.rotation is not None:
+        for ax, i, j in ((top_xy, 0, 1), (front_xz, 0, 2), (right_yz, 1, 2)):
+            ax.plot(
+                [dof.rotation.center[i], dof.rotation.center[i] + dof.rotation.axis[i]],
+                [dof.rotation.center[j], dof.rotation.center[j] + dof.rotation.axis[j]],
+                linewidth=DOF_LINEWIDTH,
+                markersize=DOF_MARKERSIZE,
+                marker="+",
+                color=color,
+            )
+            if not (abs(dof.rotation.axis[i]) < 1e-9 and abs(dof.rotation.axis[j]) < 1e-9):
+                ax.axline(
+                    (dof.rotation.center[i], dof.rotation.center[j]),
+                    (
+                        dof.rotation.center[i] + dof.rotation.axis[i],
+                        dof.rotation.center[j] + dof.rotation.axis[j],
+                    ),
+                    linestyle="--",
+                    linewidth=DOF_EXTENDED_LINEWIDTH,
+                    color=color,
+                )
+
+
+def draw_dof_3d(
+    ax: Axes3D,
+    dof: DoF,
+    color: str = "gray",
+):
+    if dof.translation is not None:
+        ax.quiver(
+            0.0,
+            0.0,
+            0.0,
+            DOF_TRANSLATION_LENGTH * dof.translation[0],
+            DOF_TRANSLATION_LENGTH * dof.translation[1],
+            DOF_TRANSLATION_LENGTH * dof.translation[2],
+            color=color,
+        )
+    if dof.rotation is not None:
+        ax.plot(
+            [dof.rotation.center[0], dof.rotation.center[0] + dof.rotation.axis[0]],
+            [dof.rotation.center[1], dof.rotation.center[1] + dof.rotation.axis[1]],
+            [dof.rotation.center[2], dof.rotation.center[2] + dof.rotation.axis[2]],
+            linewidth=DOF_LINEWIDTH,
+            markersize=DOF_MARKERSIZE,
+            marker="+",
+            color=color,
+        )

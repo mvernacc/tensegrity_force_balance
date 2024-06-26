@@ -133,3 +133,5 @@ class TestCalcDofs:
                 )
 
     # TODO test with translation dofs.
+    # TODO test on all examples from fig 2-21 of
+    # https://ocw.mit.edu/courses/2-76-multi-scale-system-design-fall-2004/3aa5862a1724b75c3e4aa7a6fee6c511_reading_l3.pdf
