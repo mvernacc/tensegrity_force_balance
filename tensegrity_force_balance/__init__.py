@@ -6,15 +6,14 @@ from matplotlib import pyplot as plt
 from matplotlib.axes import Axes
 from numpy.typing import NDArray
 from scipy.linalg import null_space
-from dataclasses import dataclass
 from mpl_toolkits.mplot3d import Axes3D
 
 
-Vec3 = tuple[float, float, float] | NDArray
+Vec3 = tuple[float | int, float | int, float | int] | NDArray
 
 
 def _unit(x: Vec3) -> NDArray:
-    x_ = np.array(x)
+    x_ = np.array(x, dtype=np.float64)
     return x_ / np.linalg.norm(x_)
 
 
@@ -140,9 +139,43 @@ def calc_wire_tensions_two_body(
     return f.value.tolist()
 
 
-def get_translation_linear_operator(
-    directions: list[tuple[float, float, float]],
-) -> NDArray:
+def check_len_3(x: Vec3, name: str = "vector"):
+    if isinstance(x, np.ndarray) and x.shape != (3,):
+        raise ValueError(f"{name} must have shape (3,), got {x.shape}")
+    elif len(x) != 3:
+        raise ValueError(f"{name} must have length 3, got {len(x)}")
+
+
+class Constraint:
+    def __init__(self, connection_point: Vec3, direction: Vec3):
+        """A constraint line which connects to a rigid body at a point, and prevents the connection
+        point from moving along the direction of the constraint.
+
+        This definition of a constraint is from Section 1.3 of Blanding [1].
+
+        References:
+            [1] D. Blanding, Exact Constraint: Machine Design Using Kinematic Processing.
+                New York: American Society of Mechanical Engineers, 1999.
+        """
+        check_len_3(connection_point, "connection_point")
+        check_len_3(direction, "direction")
+
+        self._connection_point = np.array(connection_point, dtype=np.float64)
+        self._direction = _unit(np.array(direction, dtype=np.float64))
+
+    @property
+    def connection_point(self) -> NDArray:
+        """The point where the constraint connects to the object, with shape `(3,)` and units of length."""
+        return self._connection_point
+
+    @property
+    def direction(self) -> NDArray:
+        """The direction from the remote end of the constraint to the connection point,
+        with shape `(3,)` and dimensionless unit length."""
+        return self._direction
+
+
+def get_translation_linear_operator(constraints: list[Constraint]) -> NDArray:
     """Get a linear operator which maps translations of the body -> changes in the constraint lengths.
 
     The sign convention for length changes is that motion in the constraint direction is a positive
@@ -150,16 +183,11 @@ def get_translation_linear_operator(
 
     The null space of this operator represents the translational degrees of freedom of the body,
     if any exist.
-
-    See `calc_translation_dofs` for a description of the arguments.
     """
-    return np.array([_unit(d) for d in directions])
+    return np.array([_unit(cst.direction) for cst in constraints])
 
 
-def get_rotation_linear_operator(
-    connection_points: list[tuple[float, float, float]],
-    directions: list[tuple[float, float, float]],
-) -> NDArray:
+def get_rotation_linear_operator(constraints: list[Constraint]) -> NDArray:
     """Get a linear operator which maps rotations of the body -> changes in the constraint lengths.
     This linearization is only valid for very small rotations.
 
@@ -183,9 +211,6 @@ def get_rotation_linear_operator(
 
     See `calc_dofs` for a description of the arguments.
     """
-    if len(directions) != len(connection_points):
-        raise ValueError("`directions` must have the same length as `connection_points`")
-
     # Let
     #   $r$ be a rotation vector,
     #   $c$ be a connection point vector,
@@ -210,35 +235,60 @@ def get_rotation_linear_operator(
     # TODO document for rotation about point p. The above describes rotation about the origin.
     return np.array(
         [
-            np.concatenate((np.cross(c, _unit(d)), -1 * _unit(d)))
-            for c, d in zip(connection_points, directions)
+            np.concatenate(
+                (np.cross(cst.connection_point, _unit(cst.direction)), -1 * _unit(cst.direction))
+            )
+            for cst in constraints
         ]
     )
 
 
-@dataclass
 class Rotation:
-    axis: NDArray  # shape (3,)
-    center: NDArray  # shape (3,)
+    def __init__(self, axis: Vec3, center: Vec3):
+        check_len_3(axis, "axis")
+        check_len_3(center, "center")
+
+        self._axis = _unit(np.array(axis, dtype=np.float64))
+        self._center = np.array(center, dtype=np.float64)
+
+    @property
+    def axis(self) -> NDArray:
+        """Axis of rotation, with shape `(3,)` and dimensionless unit length."""
+        return self._axis
+
+    @property
+    def center(self) -> NDArray:
+        """A point through which the line of rotation passes, with shape `(3,)` and units of length."""
+        return self._center
 
 
-@dataclass
 class DoF:
-    translation: NDArray | None  # shape (3,)
-    rotation: Rotation | None
+    def __init__(self, translation: Vec3 | None, rotation: Rotation | None):
+        if translation is not None:
+            check_len_3(translation, "translation")
+            self._translation = _unit(np.array(translation, dtype=np.float64))
+        else:
+            self._translation = None
+        self._rotation = rotation
+
+    @property
+    def translation(self) -> NDArray | None:
+        return self._translation
+
+    @property
+    def rotation(self) -> Rotation | None:
+        return self._rotation
 
 
-def calc_rotation_center(
-    connection_points: list[tuple[float, float, float]],
-    directions: list[tuple[float, float, float]],
-    r: Vec3,  # Rotation axis
-) -> NDArray:
+def calc_rotation_center(constraints: list[Constraint], axis: Vec3) -> NDArray:
     """Given a set of constraints and a rotation axis,
     solve for the point about which the rotation will not change the length
     of any constraint.
     """
-    A = np.array([np.cross(_unit(d), r) for d in directions])
-    b = np.array([np.cross(c, _unit(d)) @ r for c, d in zip(connection_points, directions)])
+    A = np.array([np.cross(_unit(cst.direction), axis) for cst in constraints])
+    b = np.array(
+        [np.cross(cst.connection_point, _unit(cst.direction)) @ axis for cst in constraints]
+    )
     p, resid, rank, s = np.linalg.lstsq(A, b)
     print(f"{p=}, {resid=}, {rank=}, {s=}")
     if resid > 1e-6:
@@ -254,8 +304,8 @@ def shortest_dist_between_lines(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3) -> float
     """
     d1 = _unit(d1)
     d2 = _unit(d2)
-    p1 = np.array(p1)
-    p2 = np.array(p2)
+    p1 = np.array(p1, dtype=np.float64)
+    p2 = np.array(p2, dtype=np.float64)
     d1xd2 = np.cross(d1, d2)
     d1xd2_norm = np.linalg.norm(d1xd2)
     if d1xd2_norm < 1e-9:
@@ -265,35 +315,28 @@ def shortest_dist_between_lines(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3) -> float
     return float(np.linalg.norm(d1xd2 @ (p2 - p1)) / d1xd2_norm)
 
 
-def calc_dofs(
-    connection_points: list[tuple[float, float, float]],
-    directions: list[tuple[float, float, float]],
-) -> list[DoF]:
+def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
     """Calculate the translational and rotational degrees of freedom of a constrained rigid body.
 
     This function models a rigid body supported by point-contact "constraint lines",
     as defined in Blanding [1].
 
-    Args:
-        directions: Directions of the constraints.
-
-    Returns:
-        basis: Dimensionless matrix of shape (6 x n_dof).
-            The columns of this matrix form an orthonormal basis of the system's
-            degrees of freedom; `basis.shape[1]` is the number of degrees of freedom.
-            Within each column, the first three elements are a translation axis and
-            the second three elements are a
-
-
     References:
         [1] D. Blanding, Exact Constraint: Machine Design Using Kinematic Processing.
             New York: American Society of Mechanical Engineers, 1999.
     """
-    n_constraints = len(connection_points)
+    n_constraints = len(constraints)
     if n_constraints == 0:
-        return []
+        return [
+            DoF(translation=(1, 0, 0), rotation=None),
+            DoF(translation=(0, 1, 0), rotation=None),
+            DoF(translation=(0, 0, 1), rotation=None),
+            DoF(translation=None, rotation=Rotation(axis=(1, 0, 0), center=(0, 0, 0))),
+            DoF(translation=None, rotation=Rotation(axis=(0, 1, 0), center=(0, 0, 0))),
+            DoF(translation=None, rotation=Rotation(axis=(0, 0, 1), center=(0, 0, 0))),
+        ]
 
-    linop_rt = get_rotation_linear_operator(connection_points, directions)
+    linop_rt = get_rotation_linear_operator(constraints)
 
     basis = null_space(linop_rt)
     print(basis)
@@ -313,7 +356,7 @@ def calc_dofs(
             translation = col[3:]
         else:
             axis = _unit(col[:3])
-            center = calc_rotation_center(connection_points, directions, axis)
+            center = calc_rotation_center(constraints, axis)
             rotation = Rotation(axis=axis, center=center)
         dofs.append(DoF(translation=translation, rotation=rotation))
     return dofs
@@ -434,41 +477,42 @@ def draw_constraint_three_view(
     top_xy: Axes,
     front_xz: Axes,
     right_yz: Axes,
-    contact_point: tuple[float, float, float] | NDArray,
-    direction: tuple[float, float, float] | NDArray,
+    constraint: Constraint,
 ):
     for ax, i, j in ((top_xy, 0, 1), (front_xz, 0, 2), (right_yz, 1, 2)):
         ax.plot(
-            [contact_point[i], contact_point[i] - direction[i]],
-            [contact_point[j], contact_point[j] - direction[j]],
+            [
+                constraint.connection_point[i],
+                constraint.connection_point[i] - constraint.direction[i],
+            ],
+            [
+                constraint.connection_point[j],
+                constraint.connection_point[j] - constraint.direction[j],
+            ],
             linewidth=CONSTRAINT_LINEWIDTH,
             color="black",
         )
         ax.plot(
-            [contact_point[i]],
-            [contact_point[j]],
+            [constraint.connection_point[i]],
+            [constraint.connection_point[j]],
             markersize=CONSTRAINT_MARKERSIZE,
             marker=".",
             color="black",
         )
 
 
-def draw_constraint_3d(
-    ax: Axes3D,
-    contact_point: tuple[float, float, float] | NDArray,
-    direction: tuple[float, float, float] | NDArray,
-):
+def draw_constraint_3d(ax: Axes3D, constraint: Constraint):
     ax.plot(
-        [contact_point[0], contact_point[0] - direction[0]],
-        [contact_point[1], contact_point[1] - direction[1]],
-        [contact_point[2], contact_point[2] - direction[2]],
+        [constraint.connection_point[0], constraint.connection_point[0] - constraint.direction[0]],
+        [constraint.connection_point[1], constraint.connection_point[1] - constraint.direction[1]],
+        [constraint.connection_point[2], constraint.connection_point[2] - constraint.direction[2]],
         linewidth=CONSTRAINT_LINEWIDTH,
         color="black",
     )
     ax.plot(
-        [contact_point[0]],
-        [contact_point[1]],
-        [contact_point[2]],
+        [constraint.connection_point[0]],
+        [constraint.connection_point[1]],
+        [constraint.connection_point[2]],
         markersize=CONSTRAINT_MARKERSIZE,
         marker=".",
         color="black",

@@ -7,12 +7,13 @@ from tensegrity_force_balance import (
     get_rotation_linear_operator,
     calc_dofs,
     shortest_dist_between_lines,
+    Constraint,
 )
 
 
 class TestGetTranslationLinearOperator:
     def test_translation_one_constraint(self):
-        linop = get_translation_linear_operator([(1.0, 0.0, 0.0)])
+        linop = get_translation_linear_operator([Constraint((0, 0, 0), (1, 0, 0))])
         assert linop @ np.array([1, 0, 0]) == approx(1.0)
         assert linop @ np.array([0, 1, 0]) == approx(0.0)
         assert linop @ np.array([0, 0, 1]) == approx(0.0)
@@ -21,16 +22,11 @@ class TestGetTranslationLinearOperator:
 class TestGetRotationLinearOperator:
     def test_three_constraints_thru_origin(self):
         linop = get_rotation_linear_operator(
-            connection_points=[
-                (1.0, 0.0, 0.0),
-                (0.0, 1.0, 0.0),
-                (0.0, 0.0, 1.0),
-            ],
-            directions=[
-                (1.0, 0.0, 0.0),
-                (0.0, 1.0, 0.0),
-                (0.0, 0.0, 1.0),
-            ],
+            [
+                Constraint((1, 0, 0), (1, 0, 0)),
+                Constraint((0, 1, 0), (0, 1, 0)),
+                Constraint((0, 0, 1), (0, 0, 1)),
+            ]
         )
 
         # No length changes for rotation about the x axis through the origin.
@@ -91,16 +87,11 @@ class TestShortestDistanceBetweenLines:
 class TestCalcDofs:
     def test_three_constraints_thru_origin(self):
         dofs = calc_dofs(
-            connection_points=[
-                (1.0, 0.0, 0.0),
-                (0.0, 1.0, 0.0),
-                (0.0, 0.0, 1.0),
-            ],
-            directions=[
-                (1.0, 0.0, 0.0),
-                (0.0, 1.0, 0.0),
-                (0.0, 0.0, 1.0),
-            ],
+            [
+                Constraint((1, 0, 0), (1, 0, 0)),
+                Constraint((0, 1, 0), (0, 1, 0)),
+                Constraint((0, 0, 1), (0, 0, 1)),
+            ]
         )
         print(dofs)
         assert len(dofs) == 3
@@ -110,26 +101,24 @@ class TestCalcDofs:
             assert dof.rotation.center == approx(np.zeros(3))
 
     def test_three_constraints_thru_111(self):
-        connection_points = [
-            (1.0, 1.0, 1.0),
-            (1.0, 1.0, 1.0),
-            (1.0, 1.0, 1.0),
+        constraints = [
+            Constraint((1, 1, 1), (1, 0, 0)),
+            Constraint((1, 1, 1), (0, 1, 0)),
+            Constraint((1, 1, 1), (0, 0, 1)),
         ]
-        directions = [
-            (1.0, 0.0, 0.0),
-            (0.0, 1.0, 0.0),
-            (0.0, 0.0, 1.0),
-        ]
-        dofs = calc_dofs(connection_points, directions)
+        dofs = calc_dofs(constraints)
         print(dofs)
         assert len(dofs) == 3
         for dof in dofs:
             assert dof.translation is None
             assert dof.rotation is not None
             # Axes of rotation will intersect or be parallel to all constraints.
-            for c, d in zip(connection_points, directions):
+            for cst in constraints:
                 assert (
-                    shortest_dist_between_lines(c, d, dof.rotation.center, dof.rotation.axis) < 1e-9
+                    shortest_dist_between_lines(
+                        cst.connection_point, cst.direction, dof.rotation.center, dof.rotation.axis
+                    )
+                    < 1e-9
                 )
 
     # TODO test with translation dofs.

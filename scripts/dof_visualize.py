@@ -7,6 +7,7 @@ from tensegrity_force_balance import (
     draw_dof_3d,
     draw_dof_three_view,
     shortest_dist_between_lines,
+    Constraint,
 )
 
 # connection_points = [
@@ -35,23 +36,21 @@ from tensegrity_force_balance import (
 # ]
 
 # 1 T, 3 R example
-connection_points = [
-    (1.0, 0.0, 0.0),
-    (0.0, -1.0, 0.0),
-]
-directions = [
-    (-1.0, 0.0, 0.0),
-    (0.0, 1.0, 0.0),
+constraints = [
+    Constraint((1, 0, 0), (-1, 0, 0)),
+    Constraint((0, -1, 0), (0, 1, 0)),
 ]
 
-dofs = calc_dofs(connection_points, directions)
+dofs = calc_dofs(constraints)
 print(dofs)
 
 for i, dof in enumerate(dofs):
     if dof.rotation is None:
         continue
-    for j, (c, d) in enumerate(zip(connection_points, directions)):
-        x = shortest_dist_between_lines(c, d, dof.rotation.center, dof.rotation.axis)
+    for j, cst in enumerate(constraints):
+        x = shortest_dist_between_lines(
+            cst.connection_point, cst.direction, dof.rotation.center, dof.rotation.axis
+        )
         print(f"Shortest distance between rotation axis {i} and constraint line {j} = {x}")
 fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True, sharey=True, figsize=(15, 15))
 axes[0, 1].remove()
@@ -59,15 +58,9 @@ axes[0, 1] = fig.add_subplot(2, 2, 2, projection="3d")
 top_xy, ortho = axes[0]
 front_xz, right_yz = axes[1]
 ortho.set_proj_type("ortho")
-for c, d in zip(connection_points, directions):
-    draw_constraint_three_view(
-        top_xy,
-        front_xz,
-        right_yz,
-        c,
-        d,
-    )
-    draw_constraint_3d(ortho, c, d)
+for cst in constraints:
+    draw_constraint_three_view(top_xy, front_xz, right_yz, cst)
+    draw_constraint_3d(ortho, cst)
 for i, dof in enumerate(dofs):
     color = f"C{i}"
     draw_dof_three_view(
