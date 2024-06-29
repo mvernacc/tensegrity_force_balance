@@ -1,6 +1,6 @@
 import copy
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Self, Sequence
 import warnings
 
 import cvxpy as cp
@@ -177,6 +177,17 @@ class Line3:
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(point=({self.point[0]}, {self.point[1]}, {self.point[2]}), direction=({self.direction[0]}, {self.direction[1]}, {self.direction[2]}))"
+
+    def coincident(self, other: Self, ptol: float = 1e-12, dtol: float = 1e-12):
+        if np.linalg.norm(np.cross(self.direction, other.direction)) > dtol:
+            return False
+        return self.shortest_distance_to_point(other.point) <= ptol
+
+    def shortest_distance_to_point(self, p: Vec3) -> float:
+        # https://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html
+        p = np.array(p, dtype=np.float64)
+        # The norm of `line.direction`` is 1, so we don't need to divide by it.
+        return float(np.linalg.norm(np.cross(self.direction, self.point - p)))
 
 
 Constraint = Line3
@@ -394,6 +405,12 @@ def basis_contains_vector(basis: Sequence[Vec3], vector: Vec3) -> bool:
     return np.linalg.matrix_rank(A) <= len(basis)
 
 
+def orthogonal_subspace(basis: Sequence[Vec3], vector: Vec3) -> NDArray:
+    A = np.stack([vector, *basis], axis=-1)
+    Q, R = np.linalg.qr(A)
+    return Q[:, 1:]
+
+
 def simplify_dofs(dofs: list[DoF]) -> list[DoF]:
     """Convert one set of degrees of freedom into an equivalent set,
     which a human may find more intuitive.
@@ -424,6 +441,32 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
             DoF(translation=None, rotation=Rotation(point=(0, 0, 0), direction=(1, 0, 0))),
             DoF(translation=None, rotation=Rotation(point=(0, 0, 0), direction=(0, 1, 0))),
             DoF(translation=None, rotation=Rotation(point=(0, 0, 0), direction=(0, 0, 1))),
+        ]
+
+    if len(constraints) == 1 or all(
+        constraints[0].coincident(constraints[i]) for i in range(1, len(constraints))
+    ):
+        print("special")
+        # Either there is only one constraint, or all the constraints are coincident.
+        # In this case, there are 3 rotation DoFs and 2 translation DoFs.
+        # The rotation DoFs are ambiguous, as they could be any three orthogonal lines which
+        # all intersect the one constraint line.
+        # Just choose an intuitive set as a special case.
+        translation_basis = orthogonal_subspace(
+            [(1, 0, 0), (0, 1, 0), (0, 0, 1)], constraints[0].direction
+        )
+        return [
+            DoF(translation_basis[:, 0], None),
+            DoF(translation_basis[:, 1], None),
+            DoF(
+                translation=None, rotation=Rotation(point=constraints[0].point, direction=(1, 0, 0))
+            ),
+            DoF(
+                translation=None, rotation=Rotation(point=constraints[0].point, direction=(0, 1, 0))
+            ),
+            DoF(
+                translation=None, rotation=Rotation(point=constraints[0].point, direction=(0, 0, 1))
+            ),
         ]
 
     linop_rt = get_rotation_linear_operator(constraints)

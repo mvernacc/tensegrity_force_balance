@@ -248,8 +248,16 @@ class TestCalcDofs:
                  Thesis, Massachusetts Institute of Technology, 1999. Accessed: Jun. 28, 2022.
                  [Online]. Available: https://dspace.mit.edu/handle/1721.1/9414
         """
+        correct_translations = [
+            dof.translation for dof in correct_dofs if dof.translation is not None
+        ]
+        correct_rotations = [dof.rotation for dof in correct_dofs if dof.rotation is not None]
+
+        # Apply the offset
         for cst in constraints:
             cst.point += offset
+        for correct_rotation in correct_rotations:
+            correct_rotation.point += offset
 
         for constraint in constraints:
             print(str(constraint))
@@ -261,10 +269,7 @@ class TestCalcDofs:
             assert dof.translation is None or dof.rotation is None
         translations = [dof.translation for dof in dofs if dof.translation is not None]
         rotations = [dof.rotation for dof in dofs if dof.rotation is not None]
-        correct_translations = [
-            dof.translation for dof in correct_dofs if dof.translation is not None
-        ]
-        correct_rotations = [dof.rotation for dof in correct_dofs if dof.rotation is not None]
+
         assert len(translations) == len(correct_translations)
         assert len(rotations) == len(correct_rotations)
 
@@ -290,9 +295,13 @@ class TestCalcDofs:
         # All the rotations should be through the offset point.
         for rotation in rotations:
             if len(constraints) == 0:
+                # Although the rotations could be about any point, the origin is the most intuitive.
                 assert rotation.point == approx(np.zeros(3))
+            elif len(constraints) == 1:
+                # Although the rotations could be about any point along the single constraint line,
+                # the specified constraint point is most intuitive.
+                assert rotation.point == approx(constraints[0].point)
             else:
-                # TODO this fails for the "3 R, 2 T" case with an offset.
                 assert rotation.point == approx(offset)
 
         # The basis of rotation directions should contain each correct rotation direction.
