@@ -1,3 +1,5 @@
+import copy
+from dataclasses import dataclass
 import warnings
 
 import cvxpy as cp
@@ -149,22 +151,28 @@ def check_len_3(x: Vec3, name: str = "vector"):
 class Line3:
     def __init__(self, point: Vec3, direction: Vec3) -> None:
         """A line in 3d space, represented by a point and a direction."""
-        check_len_3(point, "point")
-        check_len_3(direction, "direction")
-
-        self._point = np.array(point, dtype=np.float64)
-        self._direction = _unit(np.array(direction, dtype=np.float64))
-        pass
+        self.point = point
+        self.direction = direction
 
     @property
     def point(self) -> NDArray:
         """A point the line passes through, with shape `(3,)` and units of length."""
         return self._point
 
+    @point.setter
+    def point(self, value: Vec3):
+        check_len_3(value, "point")
+        self._point = np.array(value, dtype=np.float64)
+
     @property
     def direction(self) -> NDArray:
         """The direction of the line, with shape `(3,)` and dimensionless unit length."""
         return self._direction
+
+    @direction.setter
+    def direction(self, value: Vec3):
+        check_len_3(value, "direction")
+        self._direction = _unit(np.array(value, dtype=np.float64))
 
 
 Constraint = Line3
@@ -285,7 +293,7 @@ def calc_rotation_point(constraints: list[Constraint], axis: Vec3) -> NDArray:
     b = np.array([np.cross(cst.point, _unit(cst.direction)) @ axis for cst in constraints])
     p, resid, rank, s = np.linalg.lstsq(A, b)
     print(f"{p=}, {resid=}, {rank=}, {s=}")
-    if resid > 1e-6:
+    if resid.size > 0 and np.max(resid) > 1e-6:
         assert False  # TODO handle case where there is no good rotation point.
     return p
 
@@ -299,6 +307,93 @@ def shortest_dist_between_lines(a: Line3, b: Line3) -> float:
         # N.B. the norm of the directions is 1.
         return float(np.linalg.norm(np.cross(a.direction, (b.point - a.point))))
     return float(np.linalg.norm(d1xd2 @ (b.point - a.point)) / d1xd2_norm)
+
+
+def closest_points_on_lines(a: Line3, b: Line3) -> tuple[NDArray, NDArray]:
+    """Calculate the points where two 3d lines are closest to each other.
+
+    Returns two arrays:
+    * The point on line `a` closest to line `b`.
+    * The point on line `b` closest to line `a`.
+
+    Both are of shape `(3,)` and in the same length units as the `point`s of the lines.
+
+    If the lines are parallel, returns an arbitrary pair of points on the lines.
+    """
+    d1xd2 = np.cross(a.direction, b.direction)
+    d1xd2_mag2 = d1xd2 @ d1xd2
+    if d1xd2_mag2 < 1e-12:
+        ta = 0.0
+        # Formula from https://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html
+        # The magnitude of b.direction is 1, so we don't need to divide by it.
+        tb = -(b.point - a.point) @ b.direction
+    else:
+        # Formula from https://math.stackexchange.com/a/4764188
+        ta = np.cross((b.point - a.point), b.direction) @ d1xd2 / d1xd2_mag2
+        tb = np.cross((b.point - a.point), a.direction) @ d1xd2 / d1xd2_mag2
+    closest_a = a.point + ta * a.direction
+    closest_b = b.point + tb * b.direction
+    return closest_a, closest_b
+
+
+@dataclass
+class _PointAndIndexSet:
+    point: NDArray
+    indexes: set[int]
+
+
+def use_common_point_for_intersecting_lines(lines: list[Line3], tol: float = 1e-12):
+    """For any sub-set of lines which intersect, set their `point`s to be the intersection point.
+
+    Modifies the argument in-place.
+    """
+    # (intersection point, indexes of lines which intersect that point)
+    intersections: list[_PointAndIndexSet] = []
+
+    # Find all points where two lines intersect.
+    for i in range(len(lines)):
+        for j in range(i + 1, len(lines)):
+            pa, pb = closest_points_on_lines(lines[i], lines[j])
+            if np.linalg.norm(pa - pb) < tol:
+                # The lines intersect to within the tolerance.
+                intersections.append(_PointAndIndexSet((pa + pb) / 2, set([i, j])))
+
+    if len(intersections) == 0:
+        return
+
+    # Simplify the list of intersections by grouping close points together.
+    while len(intersections) > 1:
+        # Find the pair of intersections which are closest to each other.
+        closest_dist = np.inf
+        closest_pair = None
+        for i in range(len(intersections)):
+            for j in range(i + 1, len(intersections)):
+                dist = np.linalg.norm(intersections[i].point - intersections[j].point)
+                if dist < closest_dist:
+                    closest_dist = dist
+                    closest_pair = (i, j)
+        if closest_dist > tol:
+            break
+        assert closest_pair is not None
+        # Merge the closest pair of intersections.
+        a = intersections.pop(closest_pair[0])
+        b = intersections.pop(closest_pair[1] - 1)  # we changed the indexes with the previous pop
+        intersections.append(_PointAndIndexSet((a.point + b.point) / 2, a.indexes.union(b.indexes)))
+
+    for intersection in intersections:
+        for i in intersection.indexes:
+            lines[i].point = intersection.point
+
+
+def simplify_dofs(dofs: list[DoF]) -> list[DoF]:
+    """Convert one set of degrees of freedom into an equivalent set,
+    which a human may find more intuitive.
+    """
+    new_dofs = copy.deepcopy(dofs)
+    use_common_point_for_intersecting_lines(
+        [dof.rotation for dof in new_dofs if dof.rotation is not None]
+    )
+    return new_dofs
 
 
 def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
@@ -345,7 +440,7 @@ def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
             point = calc_rotation_point(constraints, direction)
             rotation = Rotation(point=point, direction=direction)
         dofs.append(DoF(translation=translation, rotation=rotation))
-    return dofs
+    return simplify_dofs(dofs)
 
 
 def _draw_vector_three_view(

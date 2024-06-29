@@ -7,6 +7,8 @@ from tensegrity_force_balance import (
     get_rotation_linear_operator,
     calc_dofs,
     shortest_dist_between_lines,
+    closest_points_on_lines,
+    use_common_point_for_intersecting_lines,
     Constraint,
     Line3,
 )
@@ -74,6 +76,65 @@ class TestShortestDistanceBetweenLines:
 
         # The lines intersect at (0, 1, 0)
         assert shortest_dist_between_lines(a, b) == approx(0.0)
+
+
+class TestClosestPointsOnLine:
+    def test_parallel(self):
+        a = Line3((0, 0, 0), (0, 1, 0))
+        b = Line3((1, 0, 0), (0, 1, 0))
+
+        closest_a, closest_b = closest_points_on_lines(a, b)
+        assert np.linalg.norm(closest_a - closest_b) == approx(1.0)
+
+    def test_skew(self):
+        a = Line3((1, 1, -1), (-1, 0, 1))
+        b = Line3((-1, -1, -1), (1, 0, 1))
+
+        # Closest approach should be 2 apart, between points (0, 1, 0) and (0, -1, 0)
+        closest_a, closest_b = closest_points_on_lines(a, b)
+        assert closest_a == approx(np.array([0, 1, 0]))
+        assert closest_b == approx(np.array([0, -1, 0]))
+
+    def test_intersecting(self):
+        a = Line3((1, 0, 0), (-1, 1, 0))
+        b = Line3((-1, 0, 0), (1, 1, 0))
+
+        # The lines intersect at (0, 1, 0)
+        closest_a, closest_b = closest_points_on_lines(a, b)
+        assert closest_a == approx(np.array([0, 1, 0]))
+        assert closest_b == approx(np.array([0, 1, 0]))
+
+
+class TestUseCommonPointForIntersectingLines:
+    def test_triangle(self):
+        # These three lines for a triangle in the x,y plane.
+        # They intersect at:
+        #  a, b: (0, 0, 0)
+        #  a, c: (1, 0, 0)
+        #  b, c: (0, 1, 0)
+        a = Line3((0, 0, 0), (1, 0, 0))
+        b = Line3((0, 1, 0), (0, 1, 0))
+        c = Line3((2, -1, 0), (-1, 1, 0))
+
+        use_common_point_for_intersecting_lines([a, b, c])
+
+        # Each line's point should be set to one of it's
+        # two intersection points, but it does not matter which one.
+        assert a.point == approx(np.zeros(3)) or a.point == approx(np.array([1, 0, 0]))
+        assert b.point == approx(np.zeros(3)) or b.point == approx(np.array([0, 1, 0]))
+        assert c.point == approx(np.array([1, 0, 0])) or c.point == approx(np.array([0, 1, 0]))
+
+    def test_three_thru_origin(self):
+        # These three lines all intersect at the origin.
+        a = Line3((2, 0, 0), (1, 0, 0))
+        b = Line3((0, 2, 0), (0, 1, 0))
+        c = Line3((0, 0, 2), (0, 0, 1))
+
+        use_common_point_for_intersecting_lines([a, b, c])
+
+        assert a.point == approx(np.zeros(3))
+        assert b.point == approx(np.zeros(3))
+        assert c.point == approx(np.zeros(3))
 
 
 class TestCalcDofs:
