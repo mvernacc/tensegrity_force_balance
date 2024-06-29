@@ -396,7 +396,7 @@ def simplify_dofs(dofs: list[DoF]) -> list[DoF]:
     return new_dofs
 
 
-def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
+def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]:
     """Calculate the translational and rotational degrees of freedom of a constrained rigid body.
 
     This function models a rigid body supported by point-contact "constraint lines",
@@ -440,7 +440,10 @@ def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
             point = calc_rotation_point(constraints, direction)
             rotation = Rotation(point=point, direction=direction)
         dofs.append(DoF(translation=translation, rotation=rotation))
-    return simplify_dofs(dofs)
+
+    if simplify:
+        dofs = simplify_dofs(dofs)
+    return dofs
 
 
 def _draw_vector_three_view(
