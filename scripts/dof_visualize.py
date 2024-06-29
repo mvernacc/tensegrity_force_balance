@@ -10,6 +10,15 @@ from tensegrity_force_balance import (
     Constraint,
 )
 
+constraints = [
+    Constraint(point=(1.1, 0.2, 0.3), direction=(-1.0, 0.0, 0.0)),
+]
+
+# constraints = [
+#     Constraint((1, 1, 1), (1, 0, 0)),
+#     Constraint((1, 1, 1), (0, 1, 0)),
+#     Constraint((1, 1, 1), (0, 0, 1)),
+# ]
 # connection_points = [
 #     (1.0, 1.0, 1.0),
 #     (1.0, 1.0, 1.0),
@@ -36,10 +45,10 @@ from tensegrity_force_balance import (
 # ]
 
 # 1 T, 3 R example
-constraints = [
-    Constraint((1, 0, 0), (-1, 0, 0)),
-    Constraint((0, -1, 0), (0, 1, 0)),
-]
+# constraints = [
+#     Constraint((1, 0, 0), (-1, 0, 0)),
+#     Constraint((0, -1, 0), (0, 1, 0)),
+# ]
 
 dofs = calc_dofs(constraints)
 print(dofs)

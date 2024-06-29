@@ -1,7 +1,9 @@
 """Unit tests for degree of freedom calculations."""
 
 from pytest import approx
+import pytest
 import numpy as np
+from numpy.typing import NDArray
 from tensegrity_force_balance import (
     get_translation_linear_operator,
     get_rotation_linear_operator,
@@ -11,6 +13,9 @@ from tensegrity_force_balance import (
     use_common_point_for_intersecting_lines,
     Constraint,
     Line3,
+    DoF,
+    Rotation,
+    basis_contains_vector,
 )
 
 
@@ -169,6 +174,128 @@ class TestCalcDofs:
             for cst in constraints:
                 assert shortest_dist_between_lines(cst, dof.rotation) < 1e-9
 
-    # TODO test with translation dofs.
-    # TODO test on all examples from fig 2-21 of
-    # https://ocw.mit.edu/courses/2-76-multi-scale-system-design-fall-2004/3aa5862a1724b75c3e4aa7a6fee6c511_reading_l3.pdf
+    @pytest.mark.parametrize(
+        ["offset"],
+        [
+            (np.array([0.0, 0.0, 0.0]),),
+            (np.array([0.1, 0.2, 0.3]),),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ["constraints", "correct_dofs"],
+        [
+            # 3 R, 3 T
+            (
+                [],
+                [
+                    DoF((1, 0, 0), None),
+                    DoF((0, 1, 0), None),
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 1, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # 3 R, 2 T
+            (
+                [
+                    Constraint((1, 0, 0), (-1, 0, 0)),
+                ],
+                [
+                    DoF((0, 1, 0), None),
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 1, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # 3 R, 1 T
+            (
+                [
+                    Constraint((1, 0, 0), (-1, 0, 0)),
+                    Constraint((0, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 1, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # 3 R, 0 T
+            (
+                [
+                    Constraint((1, 0, 0), (-1, 0, 0)),
+                    Constraint((0, -1, 0), (0, 1, 0)),
+                    Constraint((0, 0, 1), (0, 0, -1)),
+                ],
+                [
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 1, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # TODO add cases for 2, 1, and 0 R
+        ],
+    )
+    def test_hale_2_21(
+        self, constraints: list[Constraint], correct_dofs: list[DoF], offset: NDArray
+    ):
+        """Test on the example cases shown in Figure 2-21 of Hale [1].
+
+        References:
+            [1] L. C. (Layton C. Hale, "Principles and techniques for designing precision machines,"
+                 Thesis, Massachusetts Institute of Technology, 1999. Accessed: Jun. 28, 2022.
+                 [Online]. Available: https://dspace.mit.edu/handle/1721.1/9414
+        """
+        for cst in constraints:
+            cst.point += offset
+
+        for constraint in constraints:
+            print(str(constraint))
+
+        dofs = calc_dofs(constraints)
+
+        assert len(dofs) == len(correct_dofs)
+        for dof in dofs:
+            assert dof.translation is None or dof.rotation is None
+        translations = [dof.translation for dof in dofs if dof.translation is not None]
+        rotations = [dof.rotation for dof in dofs if dof.rotation is not None]
+        correct_translations = [
+            dof.translation for dof in correct_dofs if dof.translation is not None
+        ]
+        correct_rotations = [dof.rotation for dof in correct_dofs if dof.rotation is not None]
+        assert len(translations) == len(correct_translations)
+        assert len(rotations) == len(correct_rotations)
+
+        # "The axes of a body's rotational degrees of freedom will each intersect
+        # all constraints applied to the body"
+        # -- Hale, Section 2.6, Statement 4.
+        for rotation in rotations:
+            for constraint in constraints:
+                assert shortest_dist_between_lines(constraint, rotation) < 1e-9
+        # For good measure, check that we go this right when writing down the correct DoFs.
+        for rotation in correct_rotations:
+            for constraint in constraints:
+                assert shortest_dist_between_lines(constraint, rotation) < 1e-9
+
+        # There should be exactly one translation equal to each correct translation.
+        for correct_translation in correct_translations:
+            equal_count = 0
+            for translation in translations:
+                if translation == approx(correct_translation):
+                    equal_count += 1
+            assert equal_count == 1
+
+        # All the rotations should be through the offset point.
+        for rotation in rotations:
+            if len(constraints) == 0:
+                assert rotation.point == approx(np.zeros(3))
+            else:
+                # TODO this fails for the "3 R, 2 T" case with an offset.
+                assert rotation.point == approx(offset)
+
+        # The basis of rotation directions should contain each correct rotation direction.
+        rotation_direction_basis = [rotation.direction for rotation in rotations]
+        for correct_rotation in correct_rotations:
+            assert basis_contains_vector(rotation_direction_basis, correct_rotation.direction)

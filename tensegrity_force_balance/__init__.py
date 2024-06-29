@@ -1,5 +1,6 @@
 import copy
 from dataclasses import dataclass
+from typing import Sequence
 import warnings
 
 import cvxpy as cp
@@ -173,6 +174,9 @@ class Line3:
     def direction(self, value: Vec3):
         check_len_3(value, "direction")
         self._direction = _unit(np.array(value, dtype=np.float64))
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}(point=({self.point[0]}, {self.point[1]}, {self.point[2]}), direction=({self.direction[0]}, {self.direction[1]}, {self.direction[2]}))"
 
 
 Constraint = Line3
@@ -385,6 +389,11 @@ def use_common_point_for_intersecting_lines(lines: list[Line3], tol: float = 1e-
             lines[i].point = intersection.point
 
 
+def basis_contains_vector(basis: Sequence[Vec3], vector: Vec3) -> bool:
+    A = np.stack([*basis, vector])
+    return np.linalg.matrix_rank(A) <= len(basis)
+
+
 def simplify_dofs(dofs: list[DoF]) -> list[DoF]:
     """Convert one set of degrees of freedom into an equivalent set,
     which a human may find more intuitive.
@@ -550,6 +559,7 @@ def draw_three_view(
 
 
 CONSTRAINT_LINEWIDTH = 2.0
+CONSTRAINT_EXTENDED_LINEWIDTH = 0.5
 CONSTRAINT_MARKERSIZE = 10.0
 DOF_LINEWIDTH = 1.0
 DOF_EXTENDED_LINEWIDTH = 0.5
@@ -564,6 +574,17 @@ def draw_constraint_three_view(
     constraint: Constraint,
 ):
     for ax, i, j in ((top_xy, 0, 1), (front_xz, 0, 2), (right_yz, 1, 2)):
+        if not (abs(constraint.direction[i]) < 1e-9 and abs(constraint.direction[j]) < 1e-9):
+            ax.axline(
+                (constraint.point[i], constraint.point[j]),
+                (
+                    constraint.point[i] + constraint.direction[i],
+                    constraint.point[j] + constraint.direction[j],
+                ),
+                linestyle="--",
+                linewidth=CONSTRAINT_EXTENDED_LINEWIDTH,
+                color="gray",
+            )
         ax.plot(
             [
                 constraint.point[i],
