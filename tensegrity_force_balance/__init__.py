@@ -146,33 +146,41 @@ def check_len_3(x: Vec3, name: str = "vector"):
         raise ValueError(f"{name} must have length 3, got {len(x)}")
 
 
-class Constraint:
-    def __init__(self, connection_point: Vec3, direction: Vec3):
-        """A constraint line which connects to a rigid body at a point, and prevents the connection
-        point from moving along the direction of the constraint.
-
-        This definition of a constraint is from Section 1.3 of Blanding [1].
-
-        References:
-            [1] D. Blanding, Exact Constraint: Machine Design Using Kinematic Processing.
-                New York: American Society of Mechanical Engineers, 1999.
-        """
-        check_len_3(connection_point, "connection_point")
+class Line3:
+    def __init__(self, point: Vec3, direction: Vec3) -> None:
+        """A line in 3d space, represented by a point and a direction."""
+        check_len_3(point, "point")
         check_len_3(direction, "direction")
 
-        self._connection_point = np.array(connection_point, dtype=np.float64)
+        self._point = np.array(point, dtype=np.float64)
         self._direction = _unit(np.array(direction, dtype=np.float64))
+        pass
 
     @property
-    def connection_point(self) -> NDArray:
-        """The point where the constraint connects to the object, with shape `(3,)` and units of length."""
-        return self._connection_point
+    def point(self) -> NDArray:
+        """A point the line passes through, with shape `(3,)` and units of length."""
+        return self._point
 
     @property
     def direction(self) -> NDArray:
-        """The direction from the remote end of the constraint to the connection point,
-        with shape `(3,)` and dimensionless unit length."""
+        """The direction of the line, with shape `(3,)` and dimensionless unit length."""
         return self._direction
+
+
+Constraint = Line3
+"""A constraint line which connects to a rigid body at a point, and prevents the connection
+point from moving along the direction of the constraint.
+
+`point` is where the constraint connects to the object.
+
+`direction` is a unit vector from the remote end of the constraint to the connection point.
+
+This definition of a constraint is from Section 1.3 of Blanding [1].
+
+References:
+    [1] D. Blanding, Exact Constraint: Machine Design Using Kinematic Processing.
+        New York: American Society of Mechanical Engineers, 1999.
+"""
 
 
 def get_translation_linear_operator(constraints: list[Constraint]) -> NDArray:
@@ -235,31 +243,19 @@ def get_rotation_linear_operator(constraints: list[Constraint]) -> NDArray:
     # TODO document for rotation about point p. The above describes rotation about the origin.
     return np.array(
         [
-            np.concatenate(
-                (np.cross(cst.connection_point, _unit(cst.direction)), -1 * _unit(cst.direction))
-            )
+            np.concatenate((np.cross(cst.point, _unit(cst.direction)), -1 * _unit(cst.direction)))
             for cst in constraints
         ]
     )
 
 
-class Rotation:
-    def __init__(self, axis: Vec3, center: Vec3):
-        check_len_3(axis, "axis")
-        check_len_3(center, "center")
+Rotation = Line3
+"""An axis about which a body can rotate.
 
-        self._axis = _unit(np.array(axis, dtype=np.float64))
-        self._center = np.array(center, dtype=np.float64)
+`point` is a point through which the line of rotation passes.
 
-    @property
-    def axis(self) -> NDArray:
-        """Axis of rotation, with shape `(3,)` and dimensionless unit length."""
-        return self._axis
-
-    @property
-    def center(self) -> NDArray:
-        """A point through which the line of rotation passes, with shape `(3,)` and units of length."""
-        return self._center
+`direction` is a unit vector along the axis of rotation.
+"""
 
 
 class DoF:
@@ -280,15 +276,13 @@ class DoF:
         return self._rotation
 
 
-def calc_rotation_center(constraints: list[Constraint], axis: Vec3) -> NDArray:
+def calc_rotation_point(constraints: list[Constraint], axis: Vec3) -> NDArray:
     """Given a set of constraints and a rotation axis,
     solve for the point about which the rotation will not change the length
     of any constraint.
     """
     A = np.array([np.cross(_unit(cst.direction), axis) for cst in constraints])
-    b = np.array(
-        [np.cross(cst.connection_point, _unit(cst.direction)) @ axis for cst in constraints]
-    )
+    b = np.array([np.cross(cst.point, _unit(cst.direction)) @ axis for cst in constraints])
     p, resid, rank, s = np.linalg.lstsq(A, b)
     print(f"{p=}, {resid=}, {rank=}, {s=}")
     if resid > 1e-6:
@@ -296,23 +290,15 @@ def calc_rotation_center(constraints: list[Constraint], axis: Vec3) -> NDArray:
     return p
 
 
-def shortest_dist_between_lines(p1: Vec3, d1: Vec3, p2: Vec3, d2: Vec3) -> float:
-    """Calculate the shortest distance between two 3d lines.
-
-    `p1` and `p2` are points on lines 1 and 2.
-    `d1` and `d2` are the directions of lines 1 and 2.
-    """
-    d1 = _unit(d1)
-    d2 = _unit(d2)
-    p1 = np.array(p1, dtype=np.float64)
-    p2 = np.array(p2, dtype=np.float64)
-    d1xd2 = np.cross(d1, d2)
+def shortest_dist_between_lines(a: Line3, b: Line3) -> float:
+    """Calculate the shortest distance between two 3d lines."""
+    d1xd2 = np.cross(a.direction, b.direction)
     d1xd2_norm = np.linalg.norm(d1xd2)
     if d1xd2_norm < 1e-9:
         # Lines are almost parallel, avoid dividing by zero.
-        # N.B. the norm of d1 is 1.
-        return float(np.linalg.norm(np.cross(d1, (p2 - p1))))
-    return float(np.linalg.norm(d1xd2 @ (p2 - p1)) / d1xd2_norm)
+        # N.B. the norm of the directions is 1.
+        return float(np.linalg.norm(np.cross(a.direction, (b.point - a.point))))
+    return float(np.linalg.norm(d1xd2 @ (b.point - a.point)) / d1xd2_norm)
 
 
 def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
@@ -331,9 +317,9 @@ def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
             DoF(translation=(1, 0, 0), rotation=None),
             DoF(translation=(0, 1, 0), rotation=None),
             DoF(translation=(0, 0, 1), rotation=None),
-            DoF(translation=None, rotation=Rotation(axis=(1, 0, 0), center=(0, 0, 0))),
-            DoF(translation=None, rotation=Rotation(axis=(0, 1, 0), center=(0, 0, 0))),
-            DoF(translation=None, rotation=Rotation(axis=(0, 0, 1), center=(0, 0, 0))),
+            DoF(translation=None, rotation=Rotation(point=(0, 0, 0), direction=(1, 0, 0))),
+            DoF(translation=None, rotation=Rotation(point=(0, 0, 0), direction=(0, 1, 0))),
+            DoF(translation=None, rotation=Rotation(point=(0, 0, 0), direction=(0, 0, 1))),
         ]
 
     linop_rt = get_rotation_linear_operator(constraints)
@@ -355,9 +341,9 @@ def calc_dofs(constraints: list[Constraint]) -> list[DoF]:
         if np.linalg.norm(col[:3]) < 1e-6:
             translation = col[3:]
         else:
-            axis = _unit(col[:3])
-            center = calc_rotation_center(constraints, axis)
-            rotation = Rotation(axis=axis, center=center)
+            direction = _unit(col[:3])
+            point = calc_rotation_point(constraints, direction)
+            rotation = Rotation(point=point, direction=direction)
         dofs.append(DoF(translation=translation, rotation=rotation))
     return dofs
 
@@ -482,19 +468,19 @@ def draw_constraint_three_view(
     for ax, i, j in ((top_xy, 0, 1), (front_xz, 0, 2), (right_yz, 1, 2)):
         ax.plot(
             [
-                constraint.connection_point[i],
-                constraint.connection_point[i] - constraint.direction[i],
+                constraint.point[i],
+                constraint.point[i] - constraint.direction[i],
             ],
             [
-                constraint.connection_point[j],
-                constraint.connection_point[j] - constraint.direction[j],
+                constraint.point[j],
+                constraint.point[j] - constraint.direction[j],
             ],
             linewidth=CONSTRAINT_LINEWIDTH,
             color="black",
         )
         ax.plot(
-            [constraint.connection_point[i]],
-            [constraint.connection_point[j]],
+            [constraint.point[i]],
+            [constraint.point[j]],
             markersize=CONSTRAINT_MARKERSIZE,
             marker=".",
             color="black",
@@ -503,16 +489,16 @@ def draw_constraint_three_view(
 
 def draw_constraint_3d(ax: Axes3D, constraint: Constraint):
     ax.plot(
-        [constraint.connection_point[0], constraint.connection_point[0] - constraint.direction[0]],
-        [constraint.connection_point[1], constraint.connection_point[1] - constraint.direction[1]],
-        [constraint.connection_point[2], constraint.connection_point[2] - constraint.direction[2]],
+        [constraint.point[0], constraint.point[0] - constraint.direction[0]],
+        [constraint.point[1], constraint.point[1] - constraint.direction[1]],
+        [constraint.point[2], constraint.point[2] - constraint.direction[2]],
         linewidth=CONSTRAINT_LINEWIDTH,
         color="black",
     )
     ax.plot(
-        [constraint.connection_point[0]],
-        [constraint.connection_point[1]],
-        [constraint.connection_point[2]],
+        [constraint.point[0]],
+        [constraint.point[1]],
+        [constraint.point[2]],
         markersize=CONSTRAINT_MARKERSIZE,
         marker=".",
         color="black",
@@ -543,19 +529,21 @@ def draw_dof_three_view(
     if dof.rotation is not None:
         for ax, i, j in ((top_xy, 0, 1), (front_xz, 0, 2), (right_yz, 1, 2)):
             ax.plot(
-                [dof.rotation.center[i], dof.rotation.center[i] + dof.rotation.axis[i]],
-                [dof.rotation.center[j], dof.rotation.center[j] + dof.rotation.axis[j]],
+                [dof.rotation.point[i], dof.rotation.point[i] + dof.rotation.direction[i]],
+                [dof.rotation.point[j], dof.rotation.point[j] + dof.rotation.direction[j]],
                 linewidth=DOF_LINEWIDTH,
                 markersize=DOF_MARKERSIZE,
                 marker="+",
                 color=color,
             )
-            if not (abs(dof.rotation.axis[i]) < 1e-9 and abs(dof.rotation.axis[j]) < 1e-9):
+            if not (
+                abs(dof.rotation.direction[i]) < 1e-9 and abs(dof.rotation.direction[j]) < 1e-9
+            ):
                 ax.axline(
-                    (dof.rotation.center[i], dof.rotation.center[j]),
+                    (dof.rotation.point[i], dof.rotation.point[j]),
                     (
-                        dof.rotation.center[i] + dof.rotation.axis[i],
-                        dof.rotation.center[j] + dof.rotation.axis[j],
+                        dof.rotation.point[i] + dof.rotation.direction[i],
+                        dof.rotation.point[j] + dof.rotation.direction[j],
                     ),
                     linestyle="--",
                     linewidth=DOF_EXTENDED_LINEWIDTH,
@@ -580,9 +568,9 @@ def draw_dof_3d(
         )
     if dof.rotation is not None:
         ax.plot(
-            [dof.rotation.center[0], dof.rotation.center[0] + dof.rotation.axis[0]],
-            [dof.rotation.center[1], dof.rotation.center[1] + dof.rotation.axis[1]],
-            [dof.rotation.center[2], dof.rotation.center[2] + dof.rotation.axis[2]],
+            [dof.rotation.point[0], dof.rotation.point[0] + dof.rotation.direction[0]],
+            [dof.rotation.point[1], dof.rotation.point[1] + dof.rotation.direction[1]],
+            [dof.rotation.point[2], dof.rotation.point[2] + dof.rotation.direction[2]],
             linewidth=DOF_LINEWIDTH,
             markersize=DOF_MARKERSIZE,
             marker="+",

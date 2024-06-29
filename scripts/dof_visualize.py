@@ -48,9 +48,7 @@ for i, dof in enumerate(dofs):
     if dof.rotation is None:
         continue
     for j, cst in enumerate(constraints):
-        x = shortest_dist_between_lines(
-            cst.connection_point, cst.direction, dof.rotation.center, dof.rotation.axis
-        )
+        x = shortest_dist_between_lines(cst, dof.rotation)
         print(f"Shortest distance between rotation axis {i} and constraint line {j} = {x}")
 fig, axes = plt.subplots(nrows=2, ncols=2, sharex=True, sharey=True, figsize=(15, 15))
 axes[0, 1].remove()
