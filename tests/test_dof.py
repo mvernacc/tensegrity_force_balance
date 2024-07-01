@@ -235,7 +235,59 @@ class TestCalcDofs:
                     DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
                 ],
             ),
-            # TODO add cases for 2, 1, and 0 R
+            # 2R, 2 T
+            (
+                [
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                ],
+                [
+                    DoF((0, 1, 0), None),
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # 2 R, 1 T, top variant
+            (
+                [
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((0, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # 2 R, 1 T, bottom variant
+            (
+                [
+                    Constraint((1, 1, 0), (-1, 0, 0)),
+                    Constraint((1, -1, 0), (-1, 0, 0)),
+                    Constraint((0, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 1, 0))),
+                ],
+            ),
+            # 2 R, 0T
+            (
+                [
+                    Constraint((0, 0, 1), (0, 0, -1)),
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((0, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # TODO add cases for 1 and 0 R
         ],
     )
     def test_hale_2_21(
@@ -252,6 +304,9 @@ class TestCalcDofs:
             dof.translation for dof in correct_dofs if dof.translation is not None
         ]
         correct_rotations = [dof.rotation for dof in correct_dofs if dof.rotation is not None]
+        # In these examples, none of the constraints are redundant, so number of dofs + number of constraints is 6.
+        # Check that we got this right when writing down the correct DoFs.
+        assert len(correct_dofs) + len(constraints) == 6
 
         # Apply the offset
         for cst in constraints:
@@ -263,6 +318,8 @@ class TestCalcDofs:
             print(str(constraint))
 
         dofs = calc_dofs(constraints)
+        for dof in dofs:
+            print(dof)
 
         assert len(dofs) == len(correct_dofs)
         for dof in dofs:
@@ -273,17 +330,6 @@ class TestCalcDofs:
         assert len(translations) == len(correct_translations)
         assert len(rotations) == len(correct_rotations)
 
-        # "The axes of a body's rotational degrees of freedom will each intersect
-        # all constraints applied to the body"
-        # -- Hale, Section 2.6, Statement 4.
-        for rotation in rotations:
-            for constraint in constraints:
-                assert shortest_dist_between_lines(constraint, rotation) < 1e-9
-        # For good measure, check that we go this right when writing down the correct DoFs.
-        for rotation in correct_rotations:
-            for constraint in constraints:
-                assert shortest_dist_between_lines(constraint, rotation) < 1e-9
-
         # There should be exactly one translation equal to each correct translation.
         for correct_translation in correct_translations:
             equal_count = 0
@@ -292,7 +338,18 @@ class TestCalcDofs:
                     equal_count += 1
             assert equal_count == 1
 
-        # All the rotations should be through the offset point.
+        # "The axes of a body's rotational degrees of freedom will each intersect
+        # all constraints applied to the body"
+        # -- Hale, Section 2.6, Statement 4.
+        # Being parallel to a constraint line counts as intersecting it "at infinity".
+        for rotation in rotations:
+            for constraint in constraints:
+                assert constraint.parallel_or_intersecting(rotation)
+        # For good measure, check that we go this right when writing down the correct DoFs.
+        for rotation in correct_rotations:
+            for constraint in constraints:
+                assert constraint.parallel_or_intersecting(rotation)
+
         for rotation in rotations:
             if len(constraints) == 0:
                 # Although the rotations could be about any point, the origin is the most intuitive.
@@ -301,8 +358,11 @@ class TestCalcDofs:
                 # Although the rotations could be about any point along the single constraint line,
                 # the specified constraint point is most intuitive.
                 assert rotation.point == approx(constraints[0].point)
-            else:
+            elif len(correct_translations) == 0:
+                # All the rotations should be through the offset point.
                 assert rotation.point == approx(offset)
+            # If there are translation degrees of freedom, there will be many valid centers
+            # for some of the rotations, so don't test the centers.
 
         # The basis of rotation directions should contain each correct rotation direction.
         rotation_direction_basis = [rotation.direction for rotation in rotations]

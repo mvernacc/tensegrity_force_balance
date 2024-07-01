@@ -1,6 +1,6 @@
 import copy
 from dataclasses import dataclass
-from typing import Self, Sequence
+from typing import Sequence
 import warnings
 
 import cvxpy as cp
@@ -178,10 +178,19 @@ class Line3:
     def __str__(self) -> str:
         return f"{self.__class__.__name__}(point=({self.point[0]}, {self.point[1]}, {self.point[2]}), direction=({self.direction[0]}, {self.direction[1]}, {self.direction[2]}))"
 
-    def coincident(self, other: Self, ptol: float = 1e-12, dtol: float = 1e-12):
+    def coincident(self, other: "Line3", ptol: float = 1e-12, dtol: float = 1e-12) -> bool:
         if np.linalg.norm(np.cross(self.direction, other.direction)) > dtol:
             return False
         return self.shortest_distance_to_point(other.point) <= ptol
+
+    def parallel_or_intersecting(
+        self, other: "Line3", ptol: float = 1e-12, dtol: float = 1e-12
+    ) -> bool:
+        if np.linalg.norm(np.cross(self.direction, other.direction)) <= dtol:
+            return True  # The lines are parallel (to within the tolerance)
+        if shortest_dist_between_lines(self, other) <= ptol:
+            return True  # The lines intersect (to within the tolerance)
+        return False
 
     def shortest_distance_to_point(self, p: Vec3) -> float:
         # https://mathworld.wolfram.com/Point-LineDistance3-Dimensional.html
@@ -190,20 +199,22 @@ class Line3:
         return float(np.linalg.norm(np.cross(self.direction, self.point - p)))
 
 
-Constraint = Line3
-"""A constraint line which connects to a rigid body at a point, and prevents the connection
-point from moving along the direction of the constraint.
+class Constraint(Line3):
+    """A constraint line which connects to a rigid body at a point, and prevents the connection
+    point from moving along the direction of the constraint.
 
-`point` is where the constraint connects to the object.
+    `point` is where the constraint connects to the object.
 
-`direction` is a unit vector from the remote end of the constraint to the connection point.
+    `direction` is a unit vector from the remote end of the constraint to the connection point.
 
-This definition of a constraint is from Section 1.3 of Blanding [1].
+    This definition of a constraint is from Section 1.3 of Blanding [1].
 
-References:
-    [1] D. Blanding, Exact Constraint: Machine Design Using Kinematic Processing.
-        New York: American Society of Mechanical Engineers, 1999.
-"""
+    References:
+        [1] D. Blanding, Exact Constraint: Machine Design Using Kinematic Processing.
+            New York: American Society of Mechanical Engineers, 1999.
+    """
+
+    pass
 
 
 def get_translation_linear_operator(constraints: list[Constraint]) -> NDArray:
@@ -272,13 +283,15 @@ def get_rotation_linear_operator(constraints: list[Constraint]) -> NDArray:
     )
 
 
-Rotation = Line3
-"""An axis about which a body can rotate.
+class Rotation(Line3):
+    """An axis about which a body can rotate.
 
-`point` is a point through which the line of rotation passes.
+    `point` is a point through which the line of rotation passes.
 
-`direction` is a unit vector along the axis of rotation.
-"""
+    `direction` is a unit vector along the axis of rotation.
+    """
+
+    pass
 
 
 class DoF:
@@ -297,6 +310,14 @@ class DoF:
     @property
     def rotation(self) -> Rotation | None:
         return self._rotation
+
+    def __str__(self) -> str:
+        translation_str = (
+            "None"
+            if self.translation is None
+            else f"({self.translation[0]}, {self.translation[1]}, {self.translation[2]})"
+        )
+        return f"{self.__class__.__name__}(translation={translation_str}, rotation={self.rotation})"
 
 
 def calc_rotation_point(constraints: list[Constraint], axis: Vec3) -> NDArray:
