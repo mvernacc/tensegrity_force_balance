@@ -519,6 +519,19 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
     return dofs
 
 
+def constraints_allow_dof(constraints: list[Constraint], dof: DoF) -> bool:
+    t = np.zeros(3) if dof.translation is None else dof.translation
+    r = np.zeros(3) if dof.rotation is None else dof.rotation.direction
+    p = np.zeros(3) if dof.rotation is None else dof.rotation.point
+
+    # TODO ratio of r and t for coupled rotations and translations?
+
+    dof_vec = np.concatenate((r, np.cross(r, p) - t))
+    linop_rt = get_rotation_linear_operator(constraints)
+    dlengths = linop_rt @ dof_vec
+    return bool(np.all(dlengths < 1e-12))
+
+
 def _draw_vector_three_view(
     top_xy: Axes,
     front_xz: Axes,
