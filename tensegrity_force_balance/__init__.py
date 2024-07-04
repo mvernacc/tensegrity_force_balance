@@ -277,7 +277,7 @@ def get_rotation_linear_operator(constraints: list[Constraint]) -> NDArray:
     # TODO document for rotation about point p. The above describes rotation about the origin.
     return np.array(
         [
-            np.concatenate((np.cross(cst.point, _unit(cst.direction)), -1 * _unit(cst.direction)))
+            np.concatenate((np.cross(cst.point, _unit(cst.direction)), _unit(cst.direction)))
             for cst in constraints
         ]
     )
@@ -295,13 +295,18 @@ class Rotation(Line3):
 
 
 class DoF:
-    def __init__(self, translation: Vec3 | None, rotation: Rotation | None):
+    def __init__(
+        self, translation: Vec3 | None, rotation: Rotation | None, pitch: float | None = None
+    ):
         if translation is not None:
             check_len_3(translation, "translation")
             self._translation = _unit(np.array(translation, dtype=np.float64))
         else:
             self._translation = None
         self._rotation = rotation
+        if pitch is not None and (translation is None or rotation is None):
+            raise ValueError("Both translation and rotation must be provided if pitch is provided.")
+        self._pitch = pitch
 
     @property
     def translation(self) -> NDArray | None:
@@ -311,13 +316,17 @@ class DoF:
     def rotation(self) -> Rotation | None:
         return self._rotation
 
+    @property
+    def pitch(self) -> float | None:
+        return self._pitch
+
     def __str__(self) -> str:
         translation_str = (
             "None"
             if self.translation is None
             else f"({self.translation[0]}, {self.translation[1]}, {self.translation[2]})"
         )
-        return f"{self.__class__.__name__}(translation={translation_str}, rotation={self.rotation})"
+        return f"{self.__class__.__name__}(translation={translation_str}, rotation={self.rotation}, pitch={self.pitch})"
 
 
 def calc_rotation_point(constraints: list[Constraint], axis: Vec3) -> NDArray:
@@ -432,11 +441,25 @@ def orthogonal_subspace(basis: Sequence[Vec3], vector: Vec3) -> NDArray:
     return Q[:, 1:]
 
 
+def decouple_rotations_and_translations(dofs: list[DoF]):
+    # TODO this does not work for all the tests.
+    translation_basis = [
+        dof.translation for dof in dofs if dof.translation is not None and dof.rotation is None
+    ]
+    for i in range(len(dofs)):
+        if dofs[i].pitch is not None:
+            t = dofs[i].translation
+            assert t is not None
+            if basis_contains_vector(translation_basis, t):
+                dofs[i] = DoF(translation=None, rotation=dofs[i].rotation)
+
+
 def simplify_dofs(dofs: list[DoF]) -> list[DoF]:
     """Convert one set of degrees of freedom into an equivalent set,
     which a human may find more intuitive.
     """
     new_dofs = copy.deepcopy(dofs)
+    decouple_rotations_and_translations(new_dofs)
     use_common_point_for_intersecting_lines(
         [dof.rotation for dof in new_dofs if dof.rotation is not None]
     )
@@ -506,13 +529,22 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
 
         translation = None
         rotation = None
+        pitch = None
         if np.linalg.norm(col[:3]) < 1e-6:
+            # Pure translation
             translation = col[3:]
         else:
             direction = _unit(col[:3])
-            point = calc_rotation_point(constraints, direction)
+            x_parallel = (col[3:] @ direction) * direction
+            x_perp = col[3:] - x_parallel
+            r_cross_p = x_perp / np.linalg.norm(col[:3])
+            point = np.cross(direction, r_cross_p)
             rotation = Rotation(point=point, direction=direction)
-        dofs.append(DoF(translation=translation, rotation=rotation))
+            if np.linalg.norm(x_parallel) > 1e-9:
+                # Coupled translation and rotation
+                translation = direction
+                pitch = float(np.linalg.norm(x_parallel) / np.linalg.norm(col[:3]))
+        dofs.append(DoF(translation=translation, rotation=rotation, pitch=pitch))
 
     if simplify:
         dofs = simplify_dofs(dofs)

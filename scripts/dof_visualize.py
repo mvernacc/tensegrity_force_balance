@@ -1,4 +1,3 @@
-import numpy as np
 from matplotlib import pyplot as plt
 
 from tensegrity_force_balance import (
@@ -9,24 +8,20 @@ from tensegrity_force_balance import (
     draw_dof_three_view,
     shortest_dist_between_lines,
     Constraint,
-    get_rotation_linear_operator,
-    constraints_allow_dof,
-    DoF,
-    Rotation,
 )
 
 # Three skew constraints example from Blanding Figure 6.4.11
-constraints = [
-    Constraint((1, 0, 0), (0, 1, 0)),
-    Constraint((0, 1, 0), (0, 0, 1)),
-    Constraint((0, 0, 1), (1, 0, 0)),
-]
-# The "screw" motion rotating about (1, 1, 1) and translating in the (-1, -1, -1)
-# direction should be an allowed degree of freedom
-A = get_rotation_linear_operator(constraints)
-print(A @ np.array([1, 1, 1, 1, 1, 1]))
-assert np.all(A @ np.array([1, 1, 1, 1, 1, 1]) == np.zeros(3))
-assert constraints_allow_dof(constraints, DoF((-1, -1, -1), Rotation((0, 0, 0), (1, 1, 1))))
+# constraints = [
+#     Constraint((1, 0, 0), (0, 1, 0)),
+#     Constraint((0, 1, 0), (0, 0, 1)),
+#     Constraint((0, 0, 1), (1, 0, 0)),
+# ]
+# # The "screw" motion rotating about (1, 1, 1) and translating in the (-1, -1, -1)
+# # direction should be an allowed degree of freedom
+# A = get_rotation_linear_operator(constraints)
+# print(A @ np.array([1, 1, 1, 1, 1, 1]))
+# assert np.all(A @ np.array([1, 1, 1, 1, 1, 1]) == np.zeros(3))
+# assert constraints_allow_dof(constraints, DoF((-1, -1, -1), Rotation((0, 0, 0), (1, 1, 1))))
 
 # constraints = [
 #     Constraint((1, 1, 1), (1, 0, 0)),
@@ -59,13 +54,14 @@ assert constraints_allow_dof(constraints, DoF((-1, -1, -1), Rotation((0, 0, 0), 
 # ]
 
 # 1 T, 3 R example
-# constraints = [
-#     Constraint((1, 0, 0), (-1, 0, 0)),
-#     Constraint((0, -1, 0), (0, 1, 0)),
-# ]
+constraints = [
+    Constraint((1, 0, 0), (-1, 0, 0)),
+    Constraint((0, -1, 0), (0, 1, 0)),
+]
 
 dofs = calc_dofs(constraints)
-print(dofs)
+for dof in dofs:
+    print(dof)
 
 for i, dof in enumerate(dofs):
     if dof.rotation is None:

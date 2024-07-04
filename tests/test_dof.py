@@ -40,22 +40,22 @@ class TestGetRotationLinearOperator:
         # No length changes for rotation about the x axis through the origin.
         r = [1, 0, 0]
         p = [0, 0, 0]
-        assert linop @ np.concatenate((r, np.cross(r, p))) == approx(np.zeros(3))
+        assert linop @ np.concatenate((r, -np.cross(r, p))) == approx(np.zeros(3))
         # No length changes for rotation about the y axis through the origin.
         r = [0, 1, 0]
         p = [0, 0, 0]
-        assert linop @ np.concatenate((r, np.cross(r, p))) == approx(np.zeros(3))
+        assert linop @ np.concatenate((r, -np.cross(r, p))) == approx(np.zeros(3))
         # No length change for rotation about the z axis through the origin.
         r = [0, 0, 1]
         p = [0, 0, 0]
-        assert linop @ np.concatenate((r, np.cross(r, p))) == approx(np.zeros(3))
+        assert linop @ np.concatenate((r, -np.cross(r, p))) == approx(np.zeros(3))
 
         # This rotation should change the length of only the z-aligned constraint
         # because it passes through the contact point of the x-aligned constraint
         # and is parallel to the y-aligned constraint.
         r = [0, 1, 0]
         p = [1, 0, 0]
-        dl = linop @ np.concatenate((r, np.cross(r, p)))
+        dl = linop @ np.concatenate((r, -np.cross(r, p)))
         assert dl[0] == approx(0)
         assert dl[1] == approx(0)
         assert dl[2] > 1e-3
@@ -296,7 +296,7 @@ class TestCalcDofs:
         """Test on the example cases shown in Figure 2-21 of Hale [1].
 
         References:
-            [1] L. C. (Layton C. Hale, "Principles and techniques for designing precision machines,"
+            [1] Layton C. Hale, "Principles and techniques for designing precision machines,"
                  Thesis, Massachusetts Institute of Technology, 1999. Accessed: Jun. 28, 2022.
                  [Online]. Available: https://dspace.mit.edu/handle/1721.1/9414
         """
