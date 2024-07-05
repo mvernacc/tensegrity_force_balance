@@ -16,6 +16,7 @@ from tensegrity_force_balance import (
     DoF,
     Rotation,
     basis_contains_vector,
+    constraints_allow_dof,
 )
 
 
@@ -368,3 +369,60 @@ class TestCalcDofs:
         rotation_direction_basis = [rotation.direction for rotation in rotations]
         for correct_rotation in correct_rotations:
             assert basis_contains_vector(rotation_direction_basis, correct_rotation.direction)
+
+    def test_helical_dof(self):
+        """Test on a system of constraints with a single degree of freedom, which is a coupled
+        rotation and translation, i.e. a helical motion.
+
+        The arrangement of constraints is similar to that shown in Figure 2-25 of Hale.
+        However, the 3 constraints shown in Figure 2-25 leave 3 degrees of freedom,
+        which may be any three rotations whose lines are generators of a hyperboloid,
+        as shown in Figure 6.4.12 of Blanding.
+
+        Instead, the test here adds two additional constraints, whose line of constraint
+        intersects the z axis. This removes all degrees of freedom except one, because
+        there are now five non-redundant constraints. The remaining degree of freedom
+        is a helical motion about the z-axis.
+        """
+        # Setup
+        constraints = []
+        x0 = 1.0
+        y0 = 0.1
+        correct_pitch = 0.1
+        for theta in [0.0, 2 / 3 * np.pi, 4 / 3 * np.pi]:
+            constraints.append(
+                Constraint(
+                    point=(
+                        x0 * np.cos(theta) - y0 * np.sin(theta),
+                        x0 * np.sin(theta) + y0 * np.cos(theta),
+                        0,
+                    ),
+                    direction=(np.cos(theta), np.sin(theta), 1),
+                )
+            )
+        for theta in [0.0, 2 / 3 * np.pi]:
+            x = x0 * np.cos(theta) - y0 * np.sin(theta)
+            y = x0 * np.sin(theta) + y0 * np.cos(theta)
+            constraints.append(Constraint((x, y, 0), (-x, -y, 0)))
+
+        # Check the setup
+        # The constraints should allow a helical motion about the z axis.
+        assert constraints_allow_dof(
+            constraints,
+            DoF(translation=(0, 0, 1), rotation=Rotation((0, 0, 0), (0, 0, 1)), pitch=correct_pitch),
+        )
+        # The constraints should not allow pure translation about the z axis, nor pure rotation the about z axis.
+        assert not constraints_allow_dof(constraints, DoF(translation=(0, 0, 1), rotation=None))
+        assert not constraints_allow_dof(constraints, DoF(translation=None, rotation=Rotation((0, 0, 0), (0, 0, 1))))
+
+        # Action
+        dofs = calc_dofs(constraints)
+
+        # Verification
+        assert len(dofs) == 1
+        dof = dofs[0]
+        assert dof.translation == approx(np.array([0, 0, 1]))
+        assert dof.rotation is not None
+        assert dof.rotation.direction == approx(np.array([0, 0, 1]))
+        assert dof.rotation.point == approx(np.zeros(3))
+        assert dof.pitch == approx(correct_pitch)

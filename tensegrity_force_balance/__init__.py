@@ -318,7 +318,24 @@ class DoF:
 
     @property
     def pitch(self) -> float | None:
+        """The ratio of translation to rotation for a coupled DoF, in units of length per radian."""
         return self._pitch
+    
+    def to_screw(self) -> NDArray:
+        """Create a screw-like 6 vector that represents this degree of freedom.
+
+        The screw is:
+        $$
+        \\vec{dm} = [\\vec{r} \\, d\\theta, \\quad \\vec{t} \\, ds - \\vec{r} \\times \\vec{p} \, d\\theta]
+        $$
+
+        The magnitude of the 6-vector is arbitrarily set to $d\\theta = 1$.
+        """
+        r = np.zeros(3) if self.rotation is None else self.rotation.direction
+        p = np.zeros(3) if self.rotation is None else self.rotation.point
+        t = np.zeros(3) if self.translation is None else self.translation
+        pitch = 1.0 if self.pitch is None else self.pitch
+        return np.concatenate((r, pitch * t - np.cross(r, p)))
 
     def __str__(self) -> str:
         translation_str = (
@@ -334,9 +351,9 @@ def calc_rotation_point(constraints: list[Constraint], axis: Vec3) -> NDArray:
     solve for the point about which the rotation will not change the length
     of any constraint.
     """
-    A = np.array([np.cross(_unit(cst.direction), axis) for cst in constraints])
-    b = np.array([np.cross(cst.point, _unit(cst.direction)) @ axis for cst in constraints])
-    p, resid, rank, s = np.linalg.lstsq(A, b)
+    A_p = np.array([np.cross(_unit(cst.direction), axis) for cst in constraints])
+    b_p = np.array([np.cross(cst.point, _unit(cst.direction)) @ axis for cst in constraints])
+    p, resid, rank, s = np.linalg.lstsq(A_p, b_p)
     print(f"{p=}, {resid=}, {rank=}, {s=}")
     if resid.size > 0 and np.max(resid) > 1e-6:
         assert False  # TODO handle case where there is no good rotation point.
@@ -441,29 +458,19 @@ def orthogonal_subspace(basis: Sequence[Vec3], vector: Vec3) -> NDArray:
     return Q[:, 1:]
 
 
-def decouple_rotations_and_translations(dofs: list[DoF]):
-    # TODO this does not work for all the tests.
-    translation_basis = [
-        dof.translation for dof in dofs if dof.translation is not None and dof.rotation is None
-    ]
-    for i in range(len(dofs)):
-        if dofs[i].pitch is not None:
-            t = dofs[i].translation
-            assert t is not None
-            if basis_contains_vector(translation_basis, t):
-                dofs[i] = DoF(translation=None, rotation=dofs[i].rotation)
-
-
 def simplify_dofs(dofs: list[DoF]) -> list[DoF]:
     """Convert one set of degrees of freedom into an equivalent set,
     which a human may find more intuitive.
     """
     new_dofs = copy.deepcopy(dofs)
-    decouple_rotations_and_translations(new_dofs)
     use_common_point_for_intersecting_lines(
         [dof.rotation for dof in new_dofs if dof.rotation is not None]
     )
     return new_dofs
+
+
+def angle_between_vectors(a: NDArray, b: NDArray) -> float:
+    return float(np.arccos(a @ b / (np.linalg.norm(a) * np.linalg.norm(b))))
 
 
 def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]:
@@ -535,15 +542,31 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
             translation = col[3:]
         else:
             direction = _unit(col[:3])
-            x_parallel = (col[3:] @ direction) * direction
-            x_perp = col[3:] - x_parallel
-            r_cross_p = x_perp / np.linalg.norm(col[:3])
-            point = np.cross(direction, r_cross_p)
+            point = calc_rotation_point(constraints, direction)
+            remainder = col[3:] + np.cross(col[:3], point)
+            print(f"{remainder=}")
             rotation = Rotation(point=point, direction=direction)
-            if np.linalg.norm(x_parallel) > 1e-9:
-                # Coupled translation and rotation
-                translation = direction
-                pitch = float(np.linalg.norm(x_parallel) / np.linalg.norm(col[:3]))
+            if np.linalg.norm(remainder) > 1e-9:
+                print("Significant remainder")
+                # If the remainder is in the space spanned by the rest of the null space basis vectors,
+                # we can neglect it.
+                if basis_contains_vector(
+                    [basis[:, j] for j in range(n_dof) if j != i],
+                    np.concatenate((np.zeros(3), remainder))
+                ):
+                    print(f"Column {i} had remainder {remainder}, but the remainder is within the other columns.")
+                else:
+                    # The remainder represents that a translation is irreducibly coupled
+                    # to this rotational degree of freedom.
+                    # We expect the remainder to be parallel to the direction of rotation,
+                    # i.e. the coupled rotation and translation is a helical motion.
+                    if angle_between_vectors(remainder, direction) > 1e-6:
+                        raise RuntimeError(
+                            f"For column {i}, remainder {remainder} is not parallel to rotation direction {direction}."
+                            " This is unexpected."
+                        )
+                    translation = remainder
+                    pitch = float(np.linalg.norm(remainder) / np.linalg.norm(col[:3]))
         dofs.append(DoF(translation=translation, rotation=rotation, pitch=pitch))
 
     if simplify:
@@ -552,16 +575,9 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
 
 
 def constraints_allow_dof(constraints: list[Constraint], dof: DoF) -> bool:
-    t = np.zeros(3) if dof.translation is None else dof.translation
-    r = np.zeros(3) if dof.rotation is None else dof.rotation.direction
-    p = np.zeros(3) if dof.rotation is None else dof.rotation.point
-
-    # TODO ratio of r and t for coupled rotations and translations?
-
-    dof_vec = np.concatenate((r, np.cross(r, p) - t))
     linop_rt = get_rotation_linear_operator(constraints)
-    dlengths = linop_rt @ dof_vec
-    return bool(np.all(dlengths < 1e-12))
+    dlengths = linop_rt @ dof.to_screw()
+    return bool(np.all(np.abs(dlengths) < 1e-12))
 
 
 def _draw_vector_three_view(

@@ -125,7 +125,7 @@ $$
 
 The null space of $A$ is the set of rotation and translation degrees of freedom which are allowed by the constraints.
 
-### Interpreting the null space basis
+### Interpreting the linear operator and its null space basis
 
 Many linear algebra libraries provide a function to calculate an orthonormal basis for the null space of a matrix, e.g. [`scipy.linalg.null_space`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.linalg.null_space.html).
 However, simply displaying this basis matrix to the user will not help them understand the
@@ -141,24 +141,49 @@ Let $M$ be the matrix of orthonormal basis vectors of the null space of $A$, and
 
 If $\bar{m}_{1:3}$ are zero, then $\bar{m}$ represents a pure translation, and $\bar{m}_{4:6}$ are the translation direction.
 
-**TODO test this part**
-
 If $\bar{m}_{1:3}$ are non-zero, then $\vec{r} = \mathrm{unit}(\bar{m}_{1:3})$.
-Let $\vec{x_{\parallel}}$ be the component of $\bar{m}_{4:6}$ parallel to $\vec{r}$
-and $\vec{x_{\perp}}$ be the component of $\bar{m}_{4:6}$ perpendicular to $\vec{r}$.
-Solve for $\vec{p}$:
+Next, we need to extract $\vec{p}$, and possibly $\vec{t}$ from
+$\bar{m}_{4:6} = \vec{t} \, ds - \vec{r} \times \vec{p} \, d\theta$.
+This is more complicated.
+To do so, we set up a linear system of equations, that can be solved for $\vec{p}$.
+Given $\vec{r}$, we wish to find the $\vec{p}$ such that $dl_i/d\theta$ is zero for every constraint:
 
 $$
-(\vec{r} \times \vec{p}) = \frac{\vec{x_{\perp}}}{|| \bar{m}_{1:3} ||} \\
-\vec{p} = \vec{r} \times (\vec{r} \times \vec{p})
+0 = \frac{dl_i}{d\theta} = \vec{c_i} \times \vec{d_i} \cdot \vec{r} - \vec{r} \times \vec{p} \cdot \vec{d_i}  \quad \forall i
 $$
 
-Of infinite possible values for $\vec{p}$, this selects the one that is perpendicular to $\vec{r}$.
+Rearranging and using the vector triple product identity gives:
 
-If $\vec{x_{\parallel}}$ is zero, $\bar{m}$ represents a pure rotation.
-If $\vec{x_{\parallel}}$ is non-zero, $\bar{m}$ represents a coupled rotation and translation,
-i.e. a helical motion.
-The pitch of the helix is:
+$$
+\vec{c_i} \times \vec{d_i} \cdot \vec{r} = (\vec{d_i} \times \vec{r}) \cdot \vec{p} \quad \forall i
+$$
+
+This is a linear system of equations:
+
+$$
+\vec{b_p} = A_p \cdot \vec{p}
+$$
+
+The number of equations is the number of constraints, which may not be 3, so the system of equations
+may be under-, well, or over-determined.
+Thus, we find a least-squares solution for $\vec{p}$, e.g. using [`numpy.linalg.lstsq`](https://numpy.org/doc/stable/reference/generated/numpy.linalg.lstsq.html#numpy.linalg.lstsq).
+
+Once we have a rotation point $\vec{p}$, we find the "remainder" of $\bar{m}_{4:6}$:
+$$
+\vec{m_{remain}} = \bar{m}_{4:6} + \bar{m}_{1:3} \times \vec{p}
+$$
+
+If the remainder is zero, $\bar{m}$ represents a pure rotation.
+Also, if the remainder is in the sub-space spanned by the other
+columns of the null space basis, then we can neglect the remainder.
+In this case, the orthogonal-ization of the null space happened to
+choose this column to be a coupled rotation and translation, but
+the other columns can cancel out the translation component.
+
+Finally, if the remainder is non-zero and is outside the sub-space of
+the other columns, $\bar{m}$ represents a "genuinely" coupled rotation and translation.
+The remainder is in the direction of the translation, which should be parallel to $\vec{r}$,
+i.e. a helical motion. The pitch of the helix is:
 $$
 \frac{ds}{d\theta} = \frac{|| \vec{r} \, ds ||}{|| \vec{r} \, d\theta ||} = \frac{|| \vec{x_{\parallel}} ||}{|| \bar{m}_{1:3} ||}
 $$ 
@@ -171,7 +196,14 @@ $$
 \vec{dm} = [\vec{r} \, d\theta, \quad \vec{t} \, ds - \vec{r} \times \vec{p} \, d\theta]
 $$
 
-Concatenate this as an extra column on the null space basis $M$:
+Multiply the constraint matrix $A$ by the screw to get the constraint length changes.
+If all the $dl$s are zero (to within some tolerance), then the motion is allowed by the constraints.
+
+$$
+|| A \cdot \vec{dm} || = || \vec{dl} || = 0 \rightarrow \vec{dm} \text{ is a valid degree of freedom}
+$$
+
+Alternatively, concatenate this as an extra column on the null space basis $M$:
 
 $$
 M_+ = [M, \vec{dm}]
