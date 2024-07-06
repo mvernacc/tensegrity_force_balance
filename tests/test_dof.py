@@ -288,7 +288,98 @@ class TestCalcDofs:
                     DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
                 ],
             ),
-            # TODO add cases for 1 and 0 R
+            # 1 R, 2 T
+            (
+                [
+                    Constraint((1, 1, 1), (-1, 0, 0)),
+                    Constraint((1, 1, -1), (-1, 0, 0)),
+                    Constraint((1, -1, -1), (-1, 0, 0)),
+                ],
+                [
+                    DoF((0, 1, 0), None),
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                ],
+            ),
+            # 1 R, 1 T, top variant
+            (
+                [
+                    Constraint((1, 1, 1), (-1, 0, 0)),
+                    Constraint((1, 1, -1), (-1, 0, 0)),
+                    Constraint((1, -1, -1), (-1, 0, 0)),
+                    Constraint((0, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                ],
+            ),
+            # 1 R, 1 T, middle variant
+            (
+                [
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((1, -1, 0), (0, 1, 0)),
+                    Constraint((-1, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                ],
+            ),
+            # 1 R, 1 T, bottom variant
+            (
+                [
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((0, -1, 1), (0, 1, 0)),
+                    Constraint((0, -1, -1), (0, 1, 0)),
+                ],
+                [
+                    DoF((0, 0, 1), None),
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # 1 R, 0 T, top variant
+            (
+                [
+                    Constraint((0, 0, 1), (0, 0, -1)),
+                    Constraint((1, 1, 1), (-1, 0, 0)),
+                    Constraint((1, 1, -1), (-1, 0, 0)),
+                    Constraint((1, -1, -1), (-1, 0, 0)),
+                    Constraint((0, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                ],
+            ),
+            # 1 R, 0 T, middle variant
+            (
+                [
+                    Constraint((0, 0, 1), (0, 0, -1)),
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((1, -1, 0), (0, 1, 0)),
+                    Constraint((-1, -1, 0), (0, 1, 0)),
+                ],
+                [
+                    DoF(None, Rotation((0, 0, 0), (1, 0, 0))),
+                ],
+            ),
+            # 1 R, 0 T, bottom variant
+            (
+                [
+                    Constraint((0, 0, 1), (0, 0, -1)),
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((0, -1, 1), (0, 1, 0)),
+                    Constraint((0, -1, -1), (0, 1, 0)),
+                ],
+                [
+                    DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
+                ],
+            ),
+            # TODO add cases for 0 R
         ],
     )
     def test_hale_2_21(
@@ -359,11 +450,16 @@ class TestCalcDofs:
                 # Although the rotations could be about any point along the single constraint line,
                 # the specified constraint point is most intuitive.
                 assert rotation.point == approx(constraints[0].point)
-            elif len(correct_translations) == 0:
+            elif len(correct_translations) == 0 and len(correct_rotations) > 1:
                 # All the rotations should be through the offset point.
                 assert rotation.point == approx(offset)
             # If there are translation degrees of freedom, there will be many valid centers
             # for some of the rotations, so don't test the centers.
+            #
+            # If there are no translation dofs and more than one rotation dof,
+            # the simplification should move the center points of all the rotation dofs
+            # to the point of intersection of their lines, which for these examples should
+            # be the offset point.
 
         # The basis of rotation directions should contain each correct rotation direction.
         rotation_direction_basis = [rotation.direction for rotation in rotations]
@@ -409,11 +505,15 @@ class TestCalcDofs:
         # The constraints should allow a helical motion about the z axis.
         assert constraints_allow_dof(
             constraints,
-            DoF(translation=(0, 0, 1), rotation=Rotation((0, 0, 0), (0, 0, 1)), pitch=correct_pitch),
+            DoF(
+                translation=(0, 0, 1), rotation=Rotation((0, 0, 0), (0, 0, 1)), pitch=correct_pitch
+            ),
         )
         # The constraints should not allow pure translation about the z axis, nor pure rotation the about z axis.
         assert not constraints_allow_dof(constraints, DoF(translation=(0, 0, 1), rotation=None))
-        assert not constraints_allow_dof(constraints, DoF(translation=None, rotation=Rotation((0, 0, 0), (0, 0, 1))))
+        assert not constraints_allow_dof(
+            constraints, DoF(translation=None, rotation=Rotation((0, 0, 0), (0, 0, 1)))
+        )
 
         # Action
         dofs = calc_dofs(constraints)

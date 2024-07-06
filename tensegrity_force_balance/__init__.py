@@ -320,7 +320,7 @@ class DoF:
     def pitch(self) -> float | None:
         """The ratio of translation to rotation for a coupled DoF, in units of length per radian."""
         return self._pitch
-    
+
     def to_screw(self) -> NDArray:
         """Create a screw-like 6 vector that represents this degree of freedom.
 
@@ -552,9 +552,11 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
                 # we can neglect it.
                 if basis_contains_vector(
                     [basis[:, j] for j in range(n_dof) if j != i],
-                    np.concatenate((np.zeros(3), remainder))
+                    np.concatenate((np.zeros(3), remainder)),
                 ):
-                    print(f"Column {i} had remainder {remainder}, but the remainder is within the other columns.")
+                    print(
+                        f"Column {i} had remainder {remainder}, but the remainder is within the other columns."
+                    )
                 else:
                     # The remainder represents that a translation is irreducibly coupled
                     # to this rotational degree of freedom.
