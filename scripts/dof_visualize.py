@@ -59,35 +59,35 @@ from tensegrity_force_balance import (
 #     Constraint((1, 0, 0), (-1, 0, 0)),
 #     Constraint((0, -1, 0), (0, 1, 0)),
 # ]
-# constraints = [
-#     Constraint(point=(1.1, 0.2, 1.3), direction=(-1.0, 0.0, 0.0)),
-#     Constraint(point=(1.1, 0.2, -0.7), direction=(-1.0, 0.0, 0.0)),
-#     Constraint(point=(0.1, -0.8, 0.3), direction=(0.0, 1.0, 0.0)),
-# ]
+constraints = [
+    Constraint(point=(1.1, 0.2, 1.3), direction=(-1.0, 0.0, 0.0)),
+    Constraint(point=(1.1, 0.2, -0.7), direction=(-1.0, 0.0, 0.0)),
+    Constraint(point=(0.1, -0.8, 0.3), direction=(0.0, 1.0, 0.0)),
+]
 
 # A set of constraints which should only allow helical motion about the z axis.
-constraints = []
-x0 = 1.0
-y0 = 0.1
-for theta in [0.0, 2 / 3 * np.pi, 4 / 3 * np.pi]:
-    constraints.append(
-        Constraint(
-            point=(
-                x0 * np.cos(theta) - y0 * np.sin(theta),
-                x0 * np.sin(theta) + y0 * np.cos(theta),
-                0
-            ),
-            direction=(np.cos(theta), np.sin(theta), 1)
-        )
-    )
-for theta in [0.0, 2 / 3 * np.pi]:
-    x = x0 * np.cos(theta) - y0 * np.sin(theta)
-    y = x0 * np.sin(theta) + y0 * np.cos(theta)
-    constraints.append(
-        Constraint((x, y, 0), (-x, -y, 0))
-    )
-A = get_rotation_linear_operator(constraints)
-print(f"{A @ np.array([0, 0, 1, 0, 0, 0.1])=}")
+# constraints = []
+# x0 = 1.0
+# y0 = 0.1
+# for theta in [0.0, 2 / 3 * np.pi, 4 / 3 * np.pi]:
+#     constraints.append(
+#         Constraint(
+#             point=(
+#                 x0 * np.cos(theta) - y0 * np.sin(theta),
+#                 x0 * np.sin(theta) + y0 * np.cos(theta),
+#                 0
+#             ),
+#             direction=(np.cos(theta), np.sin(theta), 1)
+#         )
+#     )
+# for theta in [0.0, 2 / 3 * np.pi]:
+#     x = x0 * np.cos(theta) - y0 * np.sin(theta)
+#     y = x0 * np.sin(theta) + y0 * np.cos(theta)
+#     constraints.append(
+#         Constraint((x, y, 0), (-x, -y, 0))
+#     )
+# A = get_rotation_linear_operator(constraints)
+# print(f"{A @ np.array([0, 0, 1, 0, 0, 0.1])=}")
 
 
 dofs = calc_dofs(constraints)

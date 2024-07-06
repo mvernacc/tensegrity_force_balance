@@ -143,6 +143,19 @@ class TestUseCommonPointForIntersectingLines:
         assert c.point == approx(np.zeros(3))
 
 
+class TestDof:
+    def test_dof_screw_round_trip(self):
+        dof = DoF(translation=(0, 0, 1), rotation=Rotation((0, 0, 0), (0, 0, 1)), pitch=0.1)
+        m = dof.to_screw()
+        dof2 = DoF.from_screw(m)
+        assert dof2.translation is not None
+        assert dof2.rotation is not None
+        assert dof2.translation == approx(dof.translation)
+        assert dof2.rotation.point == approx(dof.rotation.point)
+        assert dof2.rotation.direction == approx(dof.rotation.direction)
+        assert dof2.pitch == approx(dof.pitch)
+
+
 class TestCalcDofs:
     def test_three_constraints_thru_origin(self):
         dofs = calc_dofs(

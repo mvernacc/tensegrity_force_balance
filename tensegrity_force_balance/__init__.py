@@ -1,6 +1,6 @@
 import copy
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Self, Sequence
 import warnings
 
 import cvxpy as cp
@@ -294,6 +294,25 @@ class Rotation(Line3):
     pass
 
 
+def cross_matrix(u: Vec3) -> NDArray:
+    """Create a matrix equivalent of the cross product of a vector.
+    
+    Given a 3-vector $\\vec{u}$, construct a 3x3 matrix $C$, such that for
+    every other vector $\\vec{v} \in \mathcal{R}^3$:
+
+    $$
+    \\vec{u} \\times \\vec{v} = C \\vec{v}
+    $$
+    """
+    return np.array(
+        [
+            [0, -u[2], u[1]],
+            [u[2], 0, -u[0]],
+            [-u[1], u[0], 0]
+        ]
+    )
+
+
 class DoF:
     def __init__(
         self, translation: Vec3 | None, rotation: Rotation | None, pitch: float | None = None
@@ -336,6 +355,60 @@ class DoF:
         t = np.zeros(3) if self.translation is None else self.translation
         pitch = 1.0 if self.pitch is None else self.pitch
         return np.concatenate((r, pitch * t - np.cross(r, p)))
+    
+    @classmethod
+    def from_screw(cls, m: NDArray) -> Self:
+        translation = None
+        rotation = None
+        pitch = None
+
+        r_dtheta = m[:3]
+        if np.linalg.norm(r_dtheta) < 1e-6:
+            # Pure translation
+            translation = m[3:]
+        else:
+            # TODO this results in a rotation line which does not intersect
+            # the constraint lines for some of the Hale test cases with offsets.
+
+            # First, try to solve for p, without a coupled translation
+            A_p = -cross_matrix(r_dtheta)
+            b_p = m[3:]
+            p, _, _, _ = np.linalg.lstsq(A_p, b_p)
+            # Calculate the residual to check if we got a good solution.
+            # Surprisingly the `residual` returned by `np.linalg.lstsq` is sometimes
+            # empty even though there is a significant residual!
+            resid = np.linalg.norm(b_p - A_p @ p)
+
+            if resid < 1e-6:
+                rotation = Rotation(p, r_dtheta)
+            else:
+                # Set up a linear system to solve for [p, t ds]
+                A_pt = np.zeros((6, 6))
+                b_pt = np.zeros(6)
+                # Set up the first three rows of A_pt to represent
+                # t ds - (r dtheta) x p = m_{4:6}
+                A_pt[:3, :3] = -cross_matrix(r_dtheta)
+                A_pt[:3, 3:] = np.eye(3)
+                b_pt[:3] = m[3:]
+                # Set up the last three rows of A_pt to represent
+                # (r dtheta) x (t ds) = 0
+                A_pt[3:, 3:] = cross_matrix(r_dtheta)
+
+                p_t_ds, _, _, _ = np.linalg.lstsq(A_pt, b_pt)
+
+                # Check that we got a good solution.
+                resid = np.linalg.norm(b_pt - A_pt @ p_t_ds)
+                assert resid < 1e-6
+
+                p = p_t_ds[:3]
+                t_ds = p_t_ds[3:]
+
+                rotation = Rotation(p, r_dtheta)
+                if np.linalg.norm(t_ds) > 1e-6:
+                    pitch = np.linalg.norm(t_ds) / np.linalg.norm(r_dtheta)
+                    translation = _unit(t_ds)
+        return DoF(translation, rotation, pitch)
+
 
     def __str__(self) -> str:
         translation_str = (
@@ -533,41 +606,50 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
     dofs = []
     for i in range(n_dof):
         col = basis[:, i]
-
-        translation = None
-        rotation = None
-        pitch = None
-        if np.linalg.norm(col[:3]) < 1e-6:
-            # Pure translation
-            translation = col[3:]
-        else:
-            direction = _unit(col[:3])
-            point = calc_rotation_point(constraints, direction)
-            remainder = col[3:] + np.cross(col[:3], point)
-            print(f"{remainder=}")
-            rotation = Rotation(point=point, direction=direction)
-            if np.linalg.norm(remainder) > 1e-9:
-                print("Significant remainder")
-                # If the remainder is in the space spanned by the rest of the null space basis vectors,
-                # we can neglect it.
-                if basis_contains_vector(
-                    [basis[:, j] for j in range(n_dof) if j != i],
-                    np.concatenate((np.zeros(3), remainder))
-                ):
-                    print(f"Column {i} had remainder {remainder}, but the remainder is within the other columns.")
-                else:
-                    # The remainder represents that a translation is irreducibly coupled
-                    # to this rotational degree of freedom.
-                    # We expect the remainder to be parallel to the direction of rotation,
-                    # i.e. the coupled rotation and translation is a helical motion.
-                    if angle_between_vectors(remainder, direction) > 1e-6:
-                        raise RuntimeError(
-                            f"For column {i}, remainder {remainder} is not parallel to rotation direction {direction}."
-                            " This is unexpected."
-                        )
-                    translation = remainder
-                    pitch = float(np.linalg.norm(remainder) / np.linalg.norm(col[:3]))
-        dofs.append(DoF(translation=translation, rotation=rotation, pitch=pitch))
+        dof = DoF.from_screw(col)
+        if dof.translation is not None and dof.rotation is not None:
+            # If the translation is in the space spanned by the rest of the null space basis vectors,
+            # we can neglect it.
+            if basis_contains_vector(
+                [basis[:, j] for j in range(n_dof) if j != i],
+                np.concatenate((np.zeros(3), dof.translation))
+            ):
+                dof = DoF(translation=None, rotation=dof.rotation, pitch=None)
+        dofs.append(dof)
+        # translation = None
+        # rotation = None
+        # pitch = None
+        # if np.linalg.norm(col[:3]) < 1e-6:
+        #     # Pure translation
+        #     translation = col[3:]
+        # else:
+        #     direction = _unit(col[:3])
+        #     point = calc_rotation_point(constraints, direction)
+        #     remainder = col[3:] + np.cross(col[:3], point)
+        #     print(f"{remainder=}")
+        #     rotation = Rotation(point=point, direction=direction)
+        #     if np.linalg.norm(remainder) > 1e-9:
+        #         print("Significant remainder")
+        #         # If the remainder is in the space spanned by the rest of the null space basis vectors,
+        #         # we can neglect it.
+        #         if basis_contains_vector(
+        #             [basis[:, j] for j in range(n_dof) if j != i],
+        #             np.concatenate((np.zeros(3), remainder))
+        #         ):
+        #             print(f"Column {i} had remainder {remainder}, but the remainder is within the other columns.")
+        #         else:
+        #             # The remainder represents that a translation is irreducibly coupled
+        #             # to this rotational degree of freedom.
+        #             # We expect the remainder to be parallel to the direction of rotation,
+        #             # i.e. the coupled rotation and translation is a helical motion.
+        #             if angle_between_vectors(remainder, direction) > 1e-6:
+        #                 raise RuntimeError(
+        #                     f"For column {i}, remainder {remainder} is not parallel to rotation direction {direction}."
+        #                     " This is unexpected."
+        #                 )
+        #             translation = remainder
+        #             pitch = float(np.linalg.norm(remainder) / np.linalg.norm(col[:3]))
+        # dofs.append(DoF(translation=translation, rotation=rotation, pitch=pitch))
 
     if simplify:
         dofs = simplify_dofs(dofs)
