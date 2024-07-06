@@ -6,7 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 from tensegrity_force_balance import (
     get_translation_linear_operator,
-    get_rotation_linear_operator,
+    get_rotation_translation_linear_operator,
     calc_dofs,
     shortest_dist_between_lines,
     closest_points_on_lines,
@@ -30,7 +30,7 @@ class TestGetTranslationLinearOperator:
 
 class TestGetRotationLinearOperator:
     def test_three_constraints_thru_origin(self):
-        linop = get_rotation_linear_operator(
+        linop = get_rotation_translation_linear_operator(
             [
                 Constraint((1, 0, 0), (1, 0, 0)),
                 Constraint((0, 1, 0), (0, 1, 0)),

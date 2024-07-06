@@ -229,52 +229,34 @@ def get_translation_linear_operator(constraints: list[Constraint]) -> NDArray:
     return np.array([_unit(cst.direction) for cst in constraints])
 
 
-def get_rotation_linear_operator(constraints: list[Constraint]) -> NDArray:
-    """Get a linear operator which maps rotations of the body -> changes in the constraint lengths.
-    This linearization is only valid for very small rotations.
+def get_rotation_translation_linear_operator(constraints: list[Constraint]) -> NDArray:
+    """Get a linear operator which maps differential rotations and translations of a body
+    -> changes in the constraint lengths.
 
-    The input space for this operator is column vectors like
-    ```
-    [[r[0]],
-     [r[1]],
-     [r[2]],
-     [rp[0]],
-     [rp[1]],
-     [rp[2]]]
-    ```
-    where $r$ is the axis of rotation, $p$ is the point about which the body is rotated,
-    and $rp = r \\cross p$.
+    The domain (input) for this operator is screw-like 6-vectors of the form
+    [r dtheta, t ds - (r x p) dtheta]
 
-    The sign convention for length changes is that motion in the constraint direction is a positive
-    length change.
+    where
+    * r is the direction of rotation (unit 3-vector),
+    * p is the point about which the body is rotated,
+    * t is the direction of translation (unit 3-vector),
+    * dtheta is the differential rotation angle,
+    * ds is the differential translation length
 
-    The null space of this operator represents the rotational degrees of freedom of the body,
-    if any exist.
+    The range (output) for this operator is the differential length change of each constraint
+    due to the motion. The sign convention for length changes is that motion in the constraint
+    direction is a positive length change.
 
-    See `calc_dofs` for a description of the arguments.
+    This linearization is only valid for very small rotations, i.e. dtheta << 1.
+
+    The null space of this operator represents the degrees of freedom of the body, if any exist.
+
+    Args:
+        constraints: Constraints applied to the body.
+
+    Returns:
+        The $A$ matrix of shape `(len(constraints), 6)`
     """
-    # Let
-    #   $r$ be a rotation vector,
-    #   $c$ be a connection point vector,
-    #   $d$ be a unit direction vector,
-    #   $dl$ be the scalar length change of the corresponding constraint.
-    # We seek a vector $a$ such that $a \dot r = dl$. $a$ will be the row of the linear
-    # operator for the corresponding constraint.
-    #
-    # Let $m$ be the direction of motion of $c$ for an infinitesimal rotation about $r$:
-    #   $m = r \cross c$
-    #
-    # The constraint length change is the motion along the constraint direction:
-    #   $dl = m \dot d$
-    #
-    # Combining these two equations:
-    #   $(r \cross c) \dot d = dl$
-    #
-    # Use the vector triple product rule:
-    #   $(c \cross d) \dot r = dl$
-    #
-    # Thus our linear operator row $a = (c \cross d)$.
-    # TODO document for rotation about point p. The above describes rotation about the origin.
     return np.array(
         [
             np.concatenate((np.cross(cst.point, _unit(cst.direction)), _unit(cst.direction)))
@@ -520,7 +502,7 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
             ),
         ]
 
-    linop_rt = get_rotation_linear_operator(constraints)
+    linop_rt = get_rotation_translation_linear_operator(constraints)
 
     basis = null_space(linop_rt)
     print(basis)
@@ -577,7 +559,7 @@ def calc_dofs(constraints: list[Constraint], simplify: bool = True) -> list[DoF]
 
 
 def constraints_allow_dof(constraints: list[Constraint], dof: DoF) -> bool:
-    linop_rt = get_rotation_linear_operator(constraints)
+    linop_rt = get_rotation_translation_linear_operator(constraints)
     dlengths = linop_rt @ dof.to_screw()
     return bool(np.all(np.abs(dlengths) < 1e-12))
 

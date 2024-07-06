@@ -8,7 +8,7 @@ from tensegrity_force_balance import (
     draw_dof_three_view,
     shortest_dist_between_lines,
     Constraint,
-    get_rotation_linear_operator,
+    get_rotation_translation_linear_operator,
 )
 
 # Three skew constraints example from Blanding Figure 6.4.11
@@ -84,7 +84,7 @@ for theta in [0.0, 2 / 3 * np.pi]:
     x = x0 * np.cos(theta) - y0 * np.sin(theta)
     y = x0 * np.sin(theta) + y0 * np.cos(theta)
     constraints.append(Constraint((x, y, 0), (-x, -y, 0)))
-A = get_rotation_linear_operator(constraints)
+A = get_rotation_translation_linear_operator(constraints)
 print(f"{A @ np.array([0, 0, 1, 0, 0, 0.1])=}")
 
 
