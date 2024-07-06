@@ -379,7 +379,41 @@ class TestCalcDofs:
                     DoF(None, Rotation((0, 0, 0), (0, 0, 1))),
                 ],
             ),
-            # TODO add cases for 0 R
+            # 0 R, 1 T
+            (
+                [
+                    Constraint((1, 1, 1), (-1, 0, 0)),
+                    Constraint((1, 1, -1), (-1, 0, 0)),
+                    Constraint((1, -1, -1), (-1, 0, 0)),
+                    Constraint((0, -1, -1), (0, 1, 0)),
+                    Constraint((0, -1, 1), (0, 1, 0)),
+                ],
+                [DoF((0, 0, 1), None)],
+            ),
+            # 0 R, 0 T, top variant
+            (
+                [
+                    Constraint((0, 0, 1), (0, 0, -1)),
+                    Constraint((1, 1, 1), (-1, 0, 0)),
+                    Constraint((1, 1, -1), (-1, 0, 0)),
+                    Constraint((1, -1, -1), (-1, 0, 0)),
+                    Constraint((0, -1, -1), (0, 1, 0)),
+                    Constraint((0, -1, 1), (0, 1, 0)),
+                ],
+                [],
+            ),
+            # 0 R, 0 T, bottom variant
+            (
+                [
+                    Constraint((0, 1, 1), (0, 0, -1)),
+                    Constraint((1, 0, 1), (-1, 0, 0)),
+                    Constraint((1, 0, -1), (-1, 0, 0)),
+                    Constraint((1, -1, 0), (0, 1, 0)),
+                    Constraint((-1, -1, 0), (0, 1, 0)),
+                    Constraint((0, -1, 1), (0, 0, -1)),
+                ],
+                [],
+            ),
         ],
     )
     def test_hale_2_21(
