@@ -333,6 +333,21 @@ files = [
 ]
 
 [[package]]
+name = "kinematic-constraint"
+version = "0.1.1"
+description = "Solver for rigid body degrees of freedom with the theory of kinematic constraint (aka exact constraint)."
+optional = false
+python-versions = "<4.0,>=3.11"
+files = [
+    {file = "kinematic_constraint-0.1.1-py3-none-any.whl", hash = "sha256:212d01b60061be76b91695b85047d29708800a9397df00e5f668a7793b2f1759"},
+    {file = "kinematic_constraint-0.1.1.tar.gz", hash = "sha256:0857e4c5071659b923919746c7680b2fd648c020f57015944002fb68c0eff668"},
+]
+
+[package.dependencies]
+matplotlib = ">=3.9.0,<4.0.0"
+scipy = ">=1.13.1,<2.0.0"
+
+[[package]]
 name = "kiwisolver"
 version = "1.4.5"
 description = "A fast implementation of the Cassowary constraint solver"
@@ -1067,4 +1082,4 @@ test = ["covdefaults (>=2.3)", "coverage (>=7.2.7)", "coverage-enable-subprocess
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.11"
-content-hash = "3575a4d92b0e953b73c8fa276d4d4e5d95bc52bbf038f2124d15f0fce09b0621"
+content-hash = "8b4c9f319037ab9c32d0bf6cfec832fe1d09c1a2474e5bd58cb93588f09e619e"

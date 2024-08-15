@@ -1,4 +1,5 @@
 from matplotlib import pyplot as plt
+from kinematic_constraint import Constraint, draw, calc_dofs_basis
 from tensegrity_force_balance import calc_wire_tensions_two_body, draw_three_view
 
 # tensions = calc_wire_tensions_two_body(
@@ -43,31 +44,23 @@ from tensegrity_force_balance import calc_wire_tensions_two_body, draw_three_vie
 # platform_com = (0.0, 0.0, 0.350)
 # platform_weight = (0.0, 0.0, 10.0)
 
-wire_connection_points = [
+wire_connections = [
     # (0.0, -0.040, 0.147),
-    (0.0, 0.0, 0.0),
-    (0.0, -0.100, 0.300),
-    (0.100, 0.100, 0.300),
-    (0.100, 0.100, 0.300),
-    (-0.100, 0.100, 0.300),
-    (-0.100, 0.100, 0.300),
-]
-wire_directions = [
-    # (0.0, 1.0, 1.0),
-    (0.0, 0.0, 1.0),
-    (0.0, 0.0, -1.0),
-    (1.0, -1.0, -3.0),
-    (-1.0, 1.0, -3.0),
-    (-1.0, -1.0, -3.0),
-    (1.0, 1.0, -3.0),
+    Constraint(point=(0.0, 0.0, 0.0), direction=(0, 0, -1)),
+    Constraint(point=(0.0, -0.100, 0.300), direction=(0, 0, 1)),
+    Constraint(point=(0.100, 0.100, 0.300), direction=(-1, 1, 3)),
+    Constraint(point=(0.100, 0.100, 0.300), direction=(1, -1, 3)),
+    Constraint(point=(-0.100, 0.100, 0.300), direction=(1, 1, 3)),
+    Constraint(point=(-0.100, 0.100, 0.300), direction=(-1, -1, 3)),
 ]
 platform_com = (0.0, 0.0, 0.350)
 platform_weight = (0.0, 0.0, -10.0)
 
+draw(wire_connections, calc_dofs_basis(wire_connections))
+
 try:
     tensions = calc_wire_tensions_two_body(
-        wire_connection_points,
-        wire_directions,
+        wire_connections,
         platform_com,
         platform_weight,
         relative_stiffness=[3.0, 1.0, 1.0, 1.0, 1.0, 1.0],
@@ -77,8 +70,7 @@ try:
     print("\n".join(f"wire {i}: {t:.1f} N" for i, t in enumerate(tensions)))
 
     draw_three_view(
-        wire_connection_points,
-        wire_directions,
+        wire_connections,
         platform_com,
         platform_weight,
         tensions,
@@ -88,8 +80,7 @@ except ValueError as err:
     print(err)
 
     draw_three_view(
-        wire_connection_points,
-        wire_directions,
+        wire_connections,
         platform_com,
         platform_weight,
         tensions=6 * [1.0],

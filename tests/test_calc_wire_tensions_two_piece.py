@@ -3,6 +3,7 @@
 import numpy as np
 from pytest import approx
 
+from kinematic_constraint import Constraint
 from tensegrity_force_balance import calc_wire_tensions_two_body
 
 
@@ -22,17 +23,17 @@ def four_wire_geometry() -> dict:
     r = 0.05  # [m] Distance from the axis of the center wire to the axis of each other wire.
     z_offset = 0.05  # [m]
     return dict(
-        wire_connection_points=[
-            (0.0, 0.0, 0.0),
-            (r, 0.0, z_offset),
-            (-np.sin(np.deg2rad(30)) * r, np.cos(np.deg2rad(30)) * r, z_offset),
-            (-np.sin(np.deg2rad(30)) * r, -np.cos(np.deg2rad(30)) * r, z_offset),
-        ],
-        wire_directions=[
-            (0.0, 0.0, 1.0),
-            (0.0, 0.0, -1.0),
-            (0.0, 0.0, -1.0),
-            (0.0, 0.0, -1.0),
+        wire_connections=[
+            Constraint(point=(0.0, 0.0, 0.0), direction=(0.0, 0.0, -1.0)),
+            Constraint(point=(r, 0.0, z_offset), direction=(0.0, 0.0, 1.0)),
+            Constraint(
+                point=(-np.sin(np.deg2rad(30)) * r, np.cos(np.deg2rad(30)) * r, z_offset),
+                direction=(0.0, 0.0, 1.0),
+            ),
+            Constraint(
+                point=(-np.sin(np.deg2rad(30)) * r, -np.cos(np.deg2rad(30)) * r, z_offset),
+                direction=(0.0, 0.0, 1.0),
+            ),
         ],
         platform_com=(0.0, 0.0, z_offset),
     )
